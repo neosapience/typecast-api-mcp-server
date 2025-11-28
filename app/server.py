@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 API_HOST = os.environ.get("TYPECAST_API_HOST", "https://api.typecast.ai")
 API_KEY = os.environ.get("TYPECAST_API_KEY")
 OUTPUT_DIR = Path(os.environ.get("TYPECAST_OUTPUT_DIR", os.path.expanduser("~/Downloads/typecast_output")))
+HTTP_HEADERS = { "X-API-KEY": API_KEY }
 
 app = FastMCP(
     "typecast-api-mcp-server",
@@ -91,7 +92,10 @@ async def get_voices(model: str = TTSModel.SSFM_V21.value) -> dict:
     model = TTSModel(model)
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"{API_HOST}/v1/voices?model={model.value}")
+        response = await client.get(
+            f"{API_HOST}/v1/voices?model={model.value}",
+            headers=HTTP_HEADERS,
+        )
         if response.status_code != 200:
             raise Exception(f"Failed to get voices: {response.status_code}")
         return response.json()
@@ -133,15 +137,11 @@ async def text_to_speech(
     output_model = Output(volume=volume, audio_pitch=audio_pitch, audio_tempo=audio_tempo, audio_format=audio_format)
     request = TTSRequest(voice_id=voice_id, text=text, model=model, prompt=prompt_model, output=output_model)  # TTSModel 검증은 Pydantic이 자동으로 처리
 
-    headers = {
-        "X-API-KEY": API_KEY,
-    }
-
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{API_HOST}/v1/text-to-speech",
             json=request.model_dump(exclude_none=True),
-            headers=headers,
+            headers=HTTP_HEADERS,
         )
         if response.status_code != 200:
             raise Exception(f"Failed to generate speech: {response.status_code}, {response.text}")
