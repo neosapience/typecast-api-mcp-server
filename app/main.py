@@ -12,3 +12,7 @@ from app.server import app
 )
 def main(transport: str):
     app.run(transport=transport)
+
+
+if __name__ == "__main__":
+    main()
