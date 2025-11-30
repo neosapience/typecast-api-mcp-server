@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+    "name": "Debug Server",
+    "type": "python",
+    "request": "launch",
+    "program": "${workspaceFolder}/app/main.py",
+    "console": "integratedTerminal",
+    "env": {
+      "PYTHONPATH": "${workspaceFolder}"
+    },
+    "cwd": "${workspaceFolder}",
+    "args": ["--transport", "stdio"],
+    "justMyCode": true
+    }
+  ]
+}

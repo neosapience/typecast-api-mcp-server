@@ -43,8 +43,10 @@ Set the following environment variables:
 ```bash
 TYPECAST_API_HOST=https://api.typecast.ai
 TYPECAST_API_KEY=<your-api-key>
-TYPECAST_OUTPUT_DIR=<your-output-directory> # default: ~/Downloads/typecast_output
+TYPECAST_OUTPUT_DIR=<your-output-directory> # default: ~/Desktop/typecast_output
 ```
+
+Generated audio files will be saved to `TYPECAST_OUTPUT_DIR`.
 
 ### Usage with Claude Desktop
 

@@ -2,3 +2,4 @@ mcp
 httpx
 sounddevice
 soundfile
+python-dotenv

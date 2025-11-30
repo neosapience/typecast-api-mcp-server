@@ -5,7 +5,14 @@ description = "MCP Server for typecast-api"
 authors = [{ name = "Hyunseung Lee", email = "hyunseung@neosapience.com" }]
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["mcp", "httpx", "sounddevice", "soundfile", "click"]
+dependencies = [
+    "mcp",
+    "httpx",
+    "sounddevice",
+    "soundfile",
+    "click",
+    "python-dotenv>=1.0.0",
+]
 
 [build-system]
 requires = ["hatchling"]
