@@ -2,17 +2,33 @@
   "version": "0.2.0",
   "configurations": [
     {
-    "name": "Debug Server",
-    "type": "python",
-    "request": "launch",
-    "program": "${workspaceFolder}/app/main.py",
-    "console": "integratedTerminal",
-    "env": {
-      "PYTHONPATH": "${workspaceFolder}"
+      "name": "Debug Server (Direct)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/app/main.py",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "cwd": "${workspaceFolder}",
+      "args": ["--transport", "stdio"],
+      "justMyCode": false
     },
-    "cwd": "${workspaceFolder}",
-    "args": ["--transport", "stdio"],
-    "justMyCode": true
+    {
+      "name": "Debug Server (Attach)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5678
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "."
+        }
+      ],
+      "justMyCode": false
     }
   ]
 }

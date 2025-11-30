@@ -12,6 +12,7 @@ dependencies = [
     "soundfile",
     "click",
     "python-dotenv>=1.0.0",
+    "debugpy>=1.8.17",
 ]
 
 [build-system]
