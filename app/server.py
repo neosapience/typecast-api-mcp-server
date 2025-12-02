@@ -167,7 +167,11 @@ async def play_audio(file_path: str) -> str:
     try:
         data, samplerate = sf.read(file_path)
 
-        sd.play(data, samplerate)
+        # Get the current output device
+        output_device = sd.default.device[1]  # [input, output]
+
+        # Play on the current output device
+        sd.play(data, samplerate, device=output_device)
         sd.wait()
 
         return f"Successfully played audio file: {file_path}"
