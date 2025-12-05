@@ -41,7 +41,6 @@ uv pip install -e .
 Set the following environment variables:
 
 ```bash
-TYPECAST_API_HOST=https://api.typecast.ai
 TYPECAST_API_KEY=<your-api-key>
 TYPECAST_OUTPUT_DIR=<your-output-directory> # default: ~/Downloads/typecast_output
 ```
@@ -64,7 +63,6 @@ You can add the following to your `claude_desktop_config.json`:
         "typecast-api-mcp-server"
       ],
       "env": {
-        "TYPECAST_API_HOST": "https://api.typecast.ai",
         "TYPECAST_API_KEY": "YOUR_API_KEY",
         "TYPECAST_OUTPUT_DIR": "PATH/TO/YOUR/OUTPUT/DIR"
       }
@@ -79,7 +77,6 @@ Replace `/PATH/TO/YOUR/PROJECT` with the actual path where your project is locat
 
 ```json
 "env": {
-  "TYPECAST_API_HOST": "https://api.typecast.ai",
   "TYPECAST_API_KEY": "YOUR_API_KEY",
   "TYPECAST_OUTPUT_DIR": "PATH/TO/YOUR/OUTPUT/DIR",
   "XDG_RUNTIME_DIR": "/run/user/1000"
