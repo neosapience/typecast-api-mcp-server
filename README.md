@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/neosapience-typecast-api-mcp-server-sample-badge.png)](https://mseep.ai/app/neosapience-typecast-api-mcp-server-sample)
+
 # typecast-api-mcp-server-sample
 
 MCP Server for typecast-api, enabling seamless integration with MCP clients. This project provides a standardized way to interact with Typecast API through the Model Context Protocol.
