@@ -1,4 +1,4 @@
-# typecast-api-mcp-server-sample
+# typecast-api-mcp-server
 
 MCP Server for typecast-api, enabling seamless integration with MCP clients. This project provides a standardized way to interact with Typecast API through the Model Context Protocol.
 
@@ -17,25 +17,6 @@ This project implements a Model [Context Protocol server](https://modelcontextpr
 
 ## Setup
 
-### Git Clone
-
-```bash
-git clone https://github.com/hyunseung/typecast-api-mcp-server-sample.git
-cd typecast-api-mcp-server-sample
-```
-
-### Dependencies
-
-This project requires Python 3.10 or higher and uses `uv` for package management.
-
-#### Package Installation
-
-```bash
-# Create virtual environment and install packages
-uv venv
-uv pip install -e .
-```
-
 ### Environment Variables
 
 Set the following environment variables:
@@ -45,11 +26,65 @@ TYPECAST_API_KEY=<your-api-key>
 TYPECAST_OUTPUT_DIR=<your-output-directory> # default: ~/Downloads/typecast_output
 ```
 
-### Usage with Claude Desktop
+### Usage with Claude Desktop / Cursor
 
-You can add the following to your `claude_desktop_config.json`:
+You can add the following to your `claude_desktop_config.json` or Cursor MCP settings:
 
-#### Basic Configuration:
+#### Recommended: Using uvx (No installation required)
+
+```json
+{
+  "mcpServers": {
+    "typecast-api-mcp-server": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/neosapience/typecast-api-mcp-server.git",
+        "typecast-api-mcp-server"
+      ],
+      "env": {
+        "TYPECAST_API_KEY": "YOUR_API_KEY",
+        "TYPECAST_OUTPUT_DIR": "PATH/TO/YOUR/OUTPUT/DIR"
+      }
+    }
+  }
+}
+```
+
+This method automatically fetches and runs the server from GitHub without manual cloning.
+
+**Note for Linux users**: If you're running on Linux, you need to add the `XDG_RUNTIME_DIR` environment variable to the `env` section:
+
+```json
+"env": {
+  "TYPECAST_API_KEY": "YOUR_API_KEY",
+  "TYPECAST_OUTPUT_DIR": "PATH/TO/YOUR/OUTPUT/DIR",
+  "XDG_RUNTIME_DIR": "/run/user/1000"
+}
+```
+
+### Alternative: Local Installation
+
+If you prefer to clone and run locally:
+
+#### Git Clone
+
+```bash
+git clone https://github.com/neosapience/typecast-api-mcp-server.git
+cd typecast-api-mcp-server
+```
+
+#### Dependencies
+
+This project requires Python 3.10 or higher and uses `uv` for package management.
+
+```bash
+# Create virtual environment and install packages
+uv venv
+uv pip install -e .
+```
+
+#### Local Configuration
 
 ```json
 {
@@ -73,17 +108,7 @@ You can add the following to your `claude_desktop_config.json`:
 
 Replace `/PATH/TO/YOUR/PROJECT` with the actual path where your project is located.
 
-**Note for Linux users**: If you're running on Linux, you need to add the `XDG_RUNTIME_DIR` environment variable to the `env` section:
-
-```json
-"env": {
-  "TYPECAST_API_KEY": "YOUR_API_KEY",
-  "TYPECAST_OUTPUT_DIR": "PATH/TO/YOUR/OUTPUT/DIR",
-  "XDG_RUNTIME_DIR": "/run/user/1000"
-}
-```
-
-### Manual Execution
+#### Manual Execution
 
 You can also run the server manually:
 

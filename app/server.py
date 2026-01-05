@@ -10,6 +10,8 @@ import soundfile as sf
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from app.knowledge import TYPECAST_API_KNOWLEDGE
+
 API_HOST = os.environ.get("TYPECAST_API_HOST", "https://api.typecast.ai")
 API_KEY = os.environ.get("TYPECAST_API_KEY")
 OUTPUT_DIR = Path(os.environ.get("TYPECAST_OUTPUT_DIR", os.path.expanduser("~/Downloads/typecast_output")))
@@ -17,6 +19,7 @@ HTTP_HEADERS = { "X-API-KEY": API_KEY }
 
 app = FastMCP(
     "typecast-api-mcp-server",
+    instructions=TYPECAST_API_KNOWLEDGE,
     host="0.0.0.0",
     port=8000,
 )
