@@ -69,9 +69,8 @@ Neosapience holds core technology patents in voice synthesis. The company publis
 ### Typecast TTS API USP (Unique Selling Points)
 
 1. **Emotion Focus**: Industry-leading emotional expression technology
-   - Various emotion presets: normal, happy, sad, angry, and more
+   - Various emotion presets: normal, happy, sad, angry
    - Fine-tune emotion intensity with emotion_intensity (0.0 ~ 2.0)
-   - SSFM 3.0 will support 7 emotions + Smart Emotion
 
 2. **High-Quality Character Voices**:
    - AI voices across various ages, genders, and tones
@@ -176,14 +175,8 @@ GET /v1/voices?model=ssfm-v21
 GET /v1/voices/{voice_id}
 ```
 
-#### 4. Check Credit Balance
-```
-GET /v1/quotas
-```
-
 ### API Characteristics
-- **Asynchronous**: Synchronous (one-call) API is not provided
-- **audio_download_url**: Valid for **24 hours only** after generation
+- **Synchronous**: The API returns audio data directly in the response
 - **No SSML Support**: Currently SSML is not supported (use speed/volume parameters instead)
 
 ---
@@ -431,7 +424,7 @@ def lambda_handler(event, context):
 
 ---
 
-## Supported Languages (Currently 27 → Expanding to 37 with SSFM 3.0)
+## Supported Languages
 
 ### Currently Supported Languages (ssfm-v21)
 

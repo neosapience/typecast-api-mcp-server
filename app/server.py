@@ -30,28 +30,15 @@ class TTSModel(str, Enum):
 
 
 class EmotionEnum(str, Enum):
+    """Emotion presets supported by the Typecast TTS API.
+    
+    Note: Each voice may only support a subset of these emotions.
+    Check the 'emotions' field in the voice response from GET /v1/voices.
+    """
     NORMAL = "normal"
     SAD = "sad"
     HAPPY = "happy"
     ANGRY = "angry"
-    REGRET = "regret"
-    URGENT = "urgent"
-    WHISPER = "whisper"
-    SCREAM = "scream"
-    SHOUT = "shout"
-    TRUSTFUL = "trustful"
-    SOFT = "soft"
-    COLD = "cold"
-    SARCASM = "sarcasm"
-    INSPIRE = "inspire"
-    CUTE = "cute"
-    CHEER = "cheer"
-    CASUAL = "casual"
-    TUNELV1 = "tunelv1"
-    TUNELV2 = "tunelv2"
-    TONEMID = "tonemid"
-    TONEUP = "toneup"
-    TONEDOWN = "tonedown"
 
 
 class Prompt(BaseModel):
