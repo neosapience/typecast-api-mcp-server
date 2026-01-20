@@ -24,6 +24,7 @@ This project implements a Model [Context Protocol server](https://modelcontextpr
 | -------------------- | ------ |
 | **Voice Management** |        |
 | Get Voices (V2 API)  | ✅     |
+| Get Voice (V2 API)   | ✅     |
 | Text to Speech       | ✅     |
 | Play Audio           | ✅     |
 | **ssfm-v30 Support** |        |

@@ -155,6 +155,25 @@ async def get_voices(
         return response.json()
 
 
+@app.tool("get_voice", "Get detailed information for a specific voice by ID using V2 API")
+async def get_voice(voice_id: str) -> dict:
+    """Get detailed information for a specific voice by ID using V2 API
+
+    Args:
+        voice_id: The voice ID (e.g., 'tc_672c5f5ce59fac2a48faeaee')
+
+    Returns:
+        Voice information with enhanced metadata including gender, age, use cases, and supported models with emotions.
+    """
+    url = f"{API_HOST}/v2/voices/{voice_id}"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=HTTP_HEADERS)
+        if response.status_code != 200:
+            raise Exception(f"Failed to get voice: {response.status_code}")
+        return response.json()
+
+
 @app.tool("text_to_speech", "Convert text to speech using the specified voice and parameters")
 async def text_to_speech(
     voice_id: str,
