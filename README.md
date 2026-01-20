@@ -6,14 +6,29 @@ MCP Server for typecast-api, enabling seamless integration with MCP clients. Thi
 
 This project implements a Model [Context Protocol server](https://modelcontextprotocol.io/introduction) for Typecast API, allowing MCP clients to interact with the Typecast API in a standardized way.
 
+## Supported Models
+
+| Model | Description | Emotion Control |
+|-------|-------------|-----------------|
+| ssfm-v30 | Latest model (recommended) | Preset + Smart Mode |
+| ssfm-v21 | Stable production model | Preset only |
+
+### ssfm-v30 Features
+- **7 Emotion Presets**: normal, happy, sad, angry, whisper, toneup, tonedown
+- **Smart Mode**: AI automatically infers emotion from context using `previous_text` and `next_text`
+- **37 Languages**: Extended language support
+
 ## Feature Implementation Status
 
 | Feature              | Status |
 | -------------------- | ------ |
 | **Voice Management** |        |
-| Get Voices           | ✅     |
+| Get Voices (V2 API)  | ✅     |
 | Text to Speech       | ✅     |
 | Play Audio           | ✅     |
+| **ssfm-v30 Support** |        |
+| Preset Mode          | ✅     |
+| Smart Mode           | ✅     |
 
 ## Setup
 
