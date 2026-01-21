@@ -69,7 +69,9 @@ Neosapience holds core technology patents in voice synthesis. The company publis
 ### Typecast TTS API USP (Unique Selling Points)
 
 1. **Emotion Focus**: Industry-leading emotional expression technology
-   - Various emotion presets: normal, happy, sad, angry
+   - ssfm-v21 emotion presets: normal, happy, sad, angry
+   - ssfm-v30 emotion presets: normal, happy, sad, angry, whisper, toneup, tonedown
+   - ssfm-v30 Smart Mode: Context-aware emotion inference from surrounding text
    - Fine-tune emotion intensity with emotion_intensity (0.0 ~ 2.0)
 
 2. **High-Quality Character Voices**:
@@ -107,6 +109,19 @@ Neosapience holds core technology patents in voice synthesis. The company publis
 
 ### What is SSFM?
 Abbreviation for **Speech Synthesis Foundation Model**, Typecast's next-generation TTS core technology. A deep learning-based foundation model that delivers natural speech and emotional expression.
+
+### Available Models
+
+| Model | Description | Emotion Control |
+|-------|-------------|-----------------|
+| ssfm-v21 | Stable production model | Preset only (normal, happy, sad, angry) |
+| ssfm-v30 | Latest model with advanced features | Preset (7 emotions) + Smart (context-aware) |
+
+### ssfm-v30 Features
+- **7 Emotion Presets**: normal, happy, sad, angry, whisper, toneup, tonedown
+- **Smart Mode**: AI automatically infers emotion from context
+- **Context Awareness**: Use previous_text and next_text for better emotion inference
+- **37 Languages**: Extended language support
 
 ---
 
@@ -148,29 +163,62 @@ POST /v1/text-to-speech
 **Required Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `voice_id` | string | Voice ID (e.g., "tc_62a8975e695ad26f7fb514d1") |
+| `voice_id` | string | Voice ID (e.g., "tc_672c5f5ce59fac2a48faeaee") |
 | `text` | string | Text to convert (max 5,000 characters) |
-| `model` | string | Model name "ssfm-v21" |
+| `model` | string | Model name: "ssfm-v21" or "ssfm-v30" (recommended) |
 
-**Optional Parameters:**
+**Optional Parameters (Common):**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `language` | string | Auto-detect | Language code (ISO 639-3, e.g., "ENG", "KOR") |
-| `prompt.emotion_preset` | string | "normal" | "normal", "happy", "sad", "angry" |
-| `prompt.emotion_intensity` | number | 1.0 | 0.0 ~ 2.0 |
+| `language` | string | Auto-detect | Language code (ISO 639-3, e.g., "eng", "kor") |
 | `output.volume` | integer | 100 | 0 ~ 200 |
 | `output.audio_pitch` | integer | 0 | -12 ~ +12 (semitones) |
 | `output.audio_tempo` | number | 1.0 | 0.5 ~ 2.0 |
 | `output.audio_format` | string | "wav" | "wav" or "mp3" |
 | `seed` | integer | - | Seed value for reproducible results |
 
-#### 2. List Voices
+**Prompt Parameters for ssfm-v21:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prompt.emotion_preset` | string | "normal" | "normal", "happy", "sad", "angry" |
+| `prompt.emotion_intensity` | number | 1.0 | 0.0 ~ 2.0 |
+
+**Prompt Parameters for ssfm-v30 (Preset Mode):**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prompt.emotion_type` | string | "preset" | Must be "preset" |
+| `prompt.emotion_preset` | string | "normal" | "normal", "happy", "sad", "angry", "whisper", "toneup", "tonedown" |
+| `prompt.emotion_intensity` | number | 1.0 | 0.0 ~ 2.0 |
+
+**Prompt Parameters for ssfm-v30 (Smart Mode):**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prompt.emotion_type` | string | "smart" | Must be "smart" |
+| `prompt.previous_text` | string | null | Previous context text for emotion inference |
+| `prompt.next_text` | string | null | Next context text for emotion inference |
+
+#### 2. List Voices (V2 API - Recommended)
+```
+GET /v2/voices
+GET /v2/voices?model=ssfm-v30
+GET /v2/voices?model=ssfm-v30&gender=female&age=young_adult
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `model` | string | Filter by model: "ssfm-v21" or "ssfm-v30" |
+| `gender` | string | Filter by gender: "male" or "female" |
+| `age` | string | Filter by age: "child", "teen", "young_adult", "middle_aged", "senior" |
+| `use_cases` | string | Filter by use case |
+
+#### 3. List Voices (V1 API - Legacy)
 ```
 GET /v1/voices
 GET /v1/voices?model=ssfm-v21
 ```
 
-#### 3. Get Specific Voice
+#### 4. Get Specific Voice
 ```
 GET /v1/voices/{voice_id}
 ```
@@ -189,18 +237,19 @@ pip install typecast-python
 ```
 
 ```python
-from typecast.client import Typecast
-from typecast.models import TTSRequest, Prompt, Output
+from typecast import Typecast
+from typecast.models import TTSRequest, PresetPrompt, Output
 
 # Initialize client
-cli = Typecast(api_key="YOUR_API_KEY")
+client = Typecast(api_key="YOUR_API_KEY")
 
-# TTS request
-response = cli.text_to_speech(TTSRequest(
+# TTS request with ssfm-v30 Preset Mode
+response = client.text_to_speech(TTSRequest(
     text="Hello! This is Typecast API.",
-    model="ssfm-v21",
-    voice_id="tc_62a8975e695ad26f7fb514d1",
-    prompt=Prompt(
+    model="ssfm-v30",
+    voice_id="tc_672c5f5ce59fac2a48faeaee",
+    prompt=PresetPrompt(
+        emotion_type="preset",
         emotion_preset="happy",
         emotion_intensity=1.5
     ),
@@ -212,6 +261,29 @@ with open('output.mp3', 'wb') as f:
     f.write(response.audio_data)
 
 print("Audio file saved successfully!")
+```
+
+#### Smart Mode Example (ssfm-v30)
+```python
+from typecast import Typecast
+from typecast.models import TTSRequest, SmartPrompt
+
+client = Typecast(api_key="YOUR_API_KEY")
+
+# Let AI infer emotion from context
+response = client.text_to_speech(TTSRequest(
+    text="Everything is going to be okay.",
+    model="ssfm-v30",
+    voice_id="tc_672c5f5ce59fac2a48faeaee",
+    prompt=SmartPrompt(
+        emotion_type="smart",
+        previous_text="I just got the best news!",
+        next_text="I can't wait to celebrate!"
+    )
+))
+
+with open('output_smart.wav', 'wb') as f:
+    f.write(response.audio_data)
 ```
 
 ### Python (Direct API)
@@ -229,9 +301,10 @@ headers = {
 }
 payload = {
     "text": "Hello! This is Typecast API.",
-    "model": "ssfm-v21",
-    "voice_id": "tc_62a8975e695ad26f7fb514d1",
+    "model": "ssfm-v30",
+    "voice_id": "tc_672c5f5ce59fac2a48faeaee",
     "prompt": {
+        "emotion_type": "preset",
         "emotion_preset": "happy",
         "emotion_intensity": 1.5
     },
@@ -262,11 +335,13 @@ import fs from "fs";
 
 const client = new TypecastClient({ apiKey: "YOUR_API_KEY" });
 
+// Preset Mode
 const audio = await client.textToSpeech({
   text: "Hello! This is Typecast API.",
-  model: "ssfm-v21",
-  voice_id: "tc_62a8975e695ad26f7fb514d1",
+  model: "ssfm-v30",
+  voice_id: "tc_672c5f5ce59fac2a48faeaee",
   prompt: {
+    emotion_type: "preset",
     emotion_preset: "happy",
     emotion_intensity: 1.5,
   },
@@ -274,22 +349,50 @@ const audio = await client.textToSpeech({
 
 await fs.promises.writeFile("output.wav", Buffer.from(audio.audioData));
 console.log("Audio saved successfully!");
+
+// Smart Mode
+const smartAudio = await client.textToSpeech({
+  text: "Everything is going to be okay.",
+  model: "ssfm-v30",
+  voice_id: "tc_672c5f5ce59fac2a48faeaee",
+  prompt: {
+    emotion_type: "smart",
+    previous_text: "I just got the best news!",
+    next_text: "I can't wait to celebrate!",
+  },
+});
 ```
 
 ### cURL
 
 ```bash
+# Preset Mode
 curl -X POST "https://api.typecast.ai/v1/text-to-speech" \\
      -H "X-API-KEY: YOUR_API_KEY" \\
      -H "Content-Type: application/json" \\
      -d '{
-         "model": "ssfm-v21",
+         "model": "ssfm-v30",
          "text": "Hello there!",
-         "voice_id": "tc_62a8975e695ad26f7fb514d1",
+         "voice_id": "tc_672c5f5ce59fac2a48faeaee",
          "prompt": {
+             "emotion_type": "preset",
              "emotion_preset": "happy"
          }
      }' > output.wav
+
+# Smart Mode
+curl -X POST "https://api.typecast.ai/v1/text-to-speech" \\
+     -H "X-API-KEY: YOUR_API_KEY" \\
+     -H "Content-Type: application/json" \\
+     -d '{
+         "model": "ssfm-v30",
+         "text": "Everything is going to be okay.",
+         "voice_id": "tc_672c5f5ce59fac2a48faeaee",
+         "prompt": {
+             "emotion_type": "smart",
+             "previous_text": "I just got the best news!"
+         }
+     }' > output_smart.wav
 ```
 
 ### AWS Lambda Example
@@ -301,7 +404,7 @@ import os
 
 def lambda_handler(event, context):
     api_key = os.environ['TYPECAST_API_KEY']
-    
+
     url = "https://api.typecast.ai/v1/text-to-speech"
     headers = {
         "X-API-KEY": api_key,
@@ -309,17 +412,21 @@ def lambda_handler(event, context):
     }
     payload = {
         "text": event.get("text", "Hello from Lambda!"),
-        "model": "ssfm-v21",
-        "voice_id": "tc_62a8975e695ad26f7fb514d1"
+        "model": "ssfm-v30",
+        "voice_id": "tc_672c5f5ce59fac2a48faeaee",
+        "prompt": {
+            "emotion_type": "preset",
+            "emotion_preset": event.get("emotion", "normal")
+        }
     }
-    
+
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode('utf-8'),
         headers=headers,
         method='POST'
     )
-    
+
     with urllib.request.urlopen(req) as response:
         audio_data = response.read()
         # Save to S3 or return as base64
@@ -412,7 +519,8 @@ def lambda_handler(event, context):
 ### Technical Documentation
 - **Official Docs**: https://typecast.ai/docs/overview
 - **API Reference**: https://typecast.ai/docs/api-reference
-- **GitHub (Python SDK)**: https://github.com/neosapience/typecastsdk-python
+- **GitHub (Python SDK)**: https://github.com/neosapience/typecast-python
+- **GitHub (JavaScript SDK)**: https://github.com/neosapience/typecast-js
 
 ### Community and Social
 - **Discord Community**: https://discord.gg/fhDDUbBKap
@@ -426,23 +534,27 @@ def lambda_handler(event, context):
 
 ## Supported Languages
 
-### Currently Supported Languages (ssfm-v21)
+### Currently Supported Languages (37 languages)
 
 | Language | Code | Language | Code | Language | Code |
 |----------|------|----------|------|----------|------|
-| English | ENG | Japanese | JPN | Ukrainian | UKR |
-| Korean | KOR | Greek | ELL | Indonesian | IND |
-| Spanish | SPA | Tamil | TAM | Danish | DAN |
-| German | DEU | Tagalog | TGL | Swedish | SWE |
-| French | FRA | Finnish | FIN | Malay | MSA |
-| Italian | ITA | Chinese | ZHO | Czech | CES |
-| Polish | POL | Slovak | SLK | Portuguese | POR |
-| Dutch | NLD | Arabic | ARA | Bulgarian | BUL |
-| Russian | RUS | Croatian | HRV | Romanian | RON |
+| English | eng | Japanese | jpn | Ukrainian | ukr |
+| Korean | kor | Greek | ell | Indonesian | ind |
+| Spanish | spa | Tamil | tam | Danish | dan |
+| German | deu | Tagalog | tgl | Swedish | swe |
+| French | fra | Finnish | fin | Malay | msa |
+| Italian | ita | Chinese | zho | Czech | ces |
+| Polish | pol | Slovak | slk | Portuguese | por |
+| Dutch | nld | Arabic | ara | Bulgarian | bul |
+| Russian | rus | Croatian | hrv | Romanian | ron |
+| Bengali | ben | Hindi | hin | Hungarian | hun |
+| Hokkien | nan | Norwegian | nor | Punjabi | pan |
+| Thai | tha | Turkish | tur | Vietnamese | vie |
+| Cantonese | yue | | | | |
 
 ### Primary Supported Languages (Typecast Core Languages)
-- **Main**: Korean (KOR), English (ENG), Japanese (JPN), Spanish (SPA)
-- **Secondary**: Chinese (ZHO), Vietnamese (future expansion)
+- **Main**: Korean (kor), English (eng), Japanese (jpn), Spanish (spa)
+- **Secondary**: Chinese (zho), Vietnamese (vie)
 
 ---
 

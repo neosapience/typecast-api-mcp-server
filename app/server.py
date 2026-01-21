@@ -27,23 +27,48 @@ app = FastMCP(
 
 class TTSModel(str, Enum):
     SSFM_V21 = "ssfm-v21"
+    SSFM_V30 = "ssfm-v30"
 
 
 class EmotionEnum(str, Enum):
     """Emotion presets supported by the Typecast TTS API.
-    
-    Note: Each voice may only support a subset of these emotions.
-    Check the 'emotions' field in the voice response from GET /v1/voices.
+
+    Note: ssfm-v21 supports: normal, happy, sad, angry
+    Note: ssfm-v30 supports: normal, happy, sad, angry, whisper, toneup, tonedown
     """
     NORMAL = "normal"
     SAD = "sad"
     HAPPY = "happy"
     ANGRY = "angry"
+    WHISPER = "whisper"      # ssfm-v30 only
+    TONEUP = "toneup"        # ssfm-v30 only
+    TONEDOWN = "tonedown"    # ssfm-v30 only
+
+
+class EmotionType(str, Enum):
+    """Emotion type for ssfm-v30 model."""
+    PRESET = "preset"
+    SMART = "smart"
 
 
 class Prompt(BaseModel):
+    """Basic prompt for ssfm-v21 model."""
     emotion_preset: EmotionEnum = Field(default=EmotionEnum.NORMAL, description="Emotion preset type")
     emotion_intensity: float = Field(default=1.0, description="Intensity of the emotion", ge=0.0, le=2.0)
+
+
+class PresetPrompt(BaseModel):
+    """Preset-based emotion control for ssfm-v30 model."""
+    emotion_type: EmotionType = Field(default=EmotionType.PRESET, description="Must be 'preset' for preset mode")
+    emotion_preset: EmotionEnum = Field(default=EmotionEnum.NORMAL, description="Emotion preset: normal, happy, sad, angry, whisper, toneup, tonedown")
+    emotion_intensity: float = Field(default=1.0, description="Intensity of the emotion", ge=0.0, le=2.0)
+
+
+class SmartPrompt(BaseModel):
+    """Context-aware emotion inference for ssfm-v30 model."""
+    emotion_type: EmotionType = Field(default=EmotionType.SMART, description="Must be 'smart' for smart mode")
+    previous_text: str | None = Field(default=None, description="Previous context text for emotion inference")
+    next_text: str | None = Field(default=None, description="Next context text for emotion inference")
 
 
 class Output(BaseModel):
@@ -53,11 +78,35 @@ class Output(BaseModel):
     audio_format: str = Field(default="wav", pattern="^(wav|mp3)$", description="Audio file format")
 
 
-class Voice(BaseModel):
+class GenderEnum(str, Enum):
+    """Gender filter for V2 Voices API."""
+    MALE = "male"
+    FEMALE = "female"
+
+
+class AgeEnum(str, Enum):
+    """Age filter for V2 Voices API."""
+    CHILD = "child"
+    TEEN = "teen"
+    YOUNG_ADULT = "young_adult"
+    MIDDLE_AGED = "middle_aged"
+    SENIOR = "senior"
+
+
+class VoiceModel(BaseModel):
+    """Voice model information in V2 API response."""
+    version: TTSModel = Field(description="Model version")
+    emotions: list[str] = Field(description="List of supported emotions for this model")
+
+
+class VoiceV2(BaseModel):
+    """V2 Voice response with enhanced metadata."""
     voice_id: str = Field(description="Unique voice identifier")
     voice_name: str = Field(description="Display name of the voice")
-    model: TTSModel = Field(description="TTS model type")
-    emotions: list[EmotionEnum] = Field(description="List of supported emotions")
+    models: list[VoiceModel] = Field(description="List of supported models with their emotions")
+    gender: GenderEnum | None = Field(default=None, description="Voice gender")
+    age: AgeEnum | None = Field(default=None, description="Voice age group")
+    use_cases: list[str] | None = Field(default=None, description="Recommended use cases")
 
 
 class TTSRequest(BaseModel):
@@ -65,30 +114,63 @@ class TTSRequest(BaseModel):
     text: str = Field(description="Text to convert to speech")
     model: TTSModel = Field(description="TTS model to use")
     language: str | None = Field(default=None, description="Language code based on ISO 639-3")
-    prompt: Prompt | None = Field(default_factory=Prompt, description="Prompt configuration for speech generation")
+    prompt: Prompt | PresetPrompt | SmartPrompt | None = Field(default=None, description="Prompt configuration for speech generation")
     output: Output | None = Field(default_factory=Output, description="Output audio configuration")
     seed: int | None = Field(default=None, description="Random seed for consistent generation", ge=0, le=2147483647)
 
 
-@app.tool("get_voices", "Get a list of available voices for text-to-speech")
-async def get_voices(model: str = TTSModel.SSFM_V21.value) -> dict:
-    """Get a list of available voices for text-to-speech
+@app.tool("get_voices", "Get a list of available voices using V2 API with filtering support")
+async def get_voices(
+    model: str | None = None,
+    gender: str | None = None,
+    age: str | None = None,
+) -> dict:
+    """Get a list of available voices for text-to-speech using V2 API
 
     Args:
-        model: Optional filter for specific TTS models.
+        model: Optional filter for specific TTS models (ssfm-v21 or ssfm-v30).
+        gender: Optional filter for voice gender (male or female).
+        age: Optional filter for voice age group (child, teen, young_adult, middle_aged, senior).
 
     Returns:
-        List of available voices.
+        List of available voices with enhanced metadata including gender, age, and use cases.
     """
-    model = TTSModel(model)
+    params = {}
+    if model:
+        params["model"] = TTSModel(model).value
+    if gender:
+        params["gender"] = GenderEnum(gender).value
+    if age:
+        params["age"] = AgeEnum(age).value
+
+    query_string = "&".join(f"{k}={v}" for k, v in params.items())
+    url = f"{API_HOST}/v2/voices"
+    if query_string:
+        url = f"{url}?{query_string}"
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{API_HOST}/v1/voices?model={model.value}",
-            headers=HTTP_HEADERS,
-        )
+        response = await client.get(url, headers=HTTP_HEADERS)
         if response.status_code != 200:
             raise Exception(f"Failed to get voices: {response.status_code}")
+        return response.json()
+
+
+@app.tool("get_voice", "Get detailed information for a specific voice by ID using V2 API")
+async def get_voice(voice_id: str) -> dict:
+    """Get detailed information for a specific voice by ID using V2 API
+
+    Args:
+        voice_id: The voice ID (e.g., 'tc_672c5f5ce59fac2a48faeaee')
+
+    Returns:
+        Voice information with enhanced metadata including gender, age, use cases, and supported models with emotions.
+    """
+    url = f"{API_HOST}/v2/voices/{voice_id}"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=HTTP_HEADERS)
+        if response.status_code != 200:
+            raise Exception(f"Failed to get voice: {response.status_code}")
         return response.json()
 
 
@@ -96,9 +178,12 @@ async def get_voices(model: str = TTSModel.SSFM_V21.value) -> dict:
 async def text_to_speech(
     voice_id: str,
     text: str,
-    model: str,
+    model: str = TTSModel.SSFM_V30.value,
+    emotion_type: str = "preset",
     emotion_preset: str = EmotionEnum.NORMAL.value,
     emotion_intensity: float = 1.0,
+    previous_text: str | None = None,
+    next_text: str | None = None,
     volume: int = 100,
     audio_pitch: int = 0,
     audio_tempo: float = 1.0,
@@ -109,9 +194,12 @@ async def text_to_speech(
     Args:
         voice_id: ID of the voice to use
         text: Text to convert to speech
-        model: TTS model to use
-        emotion_preset: Emotion preset type (default: normal)
+        model: TTS model to use (ssfm-v21 or ssfm-v30, default: ssfm-v30)
+        emotion_type: For ssfm-v30: 'preset' for explicit emotion or 'smart' for context-aware inference (default: preset)
+        emotion_preset: Emotion preset type. v21: normal/happy/sad/angry. v30: adds whisper/toneup/tonedown (default: normal)
         emotion_intensity: Intensity of the emotion, between 0.0 and 2.0 (default: 1.0)
+        previous_text: For smart mode - previous context text for emotion inference
+        next_text: For smart mode - next context text for emotion inference
         volume: Audio volume level, between 0 and 200 (default: 100)
         audio_pitch: Audio pitch adjustment, between -12 and 12 (default: 0)
         audio_tempo: Audio playback speed, between 0.5 and 2.0 (default: 1.0)
@@ -123,10 +211,27 @@ async def text_to_speech(
     if not OUTPUT_DIR.exists():
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Pydantic 모델을 사용하여 자동 검증
-    prompt_model = Prompt(emotion_preset=emotion_preset, emotion_intensity=emotion_intensity)
+    # Build prompt based on model and emotion_type
+    model_enum = TTSModel(model)
+    if model_enum == TTSModel.SSFM_V30:
+        if emotion_type == "smart":
+            prompt_model = SmartPrompt(
+                emotion_type=EmotionType.SMART,
+                previous_text=previous_text,
+                next_text=next_text
+            )
+        else:
+            prompt_model = PresetPrompt(
+                emotion_type=EmotionType.PRESET,
+                emotion_preset=emotion_preset,
+                emotion_intensity=emotion_intensity
+            )
+    else:
+        # ssfm-v21 uses basic Prompt
+        prompt_model = Prompt(emotion_preset=emotion_preset, emotion_intensity=emotion_intensity)
+
     output_model = Output(volume=volume, audio_pitch=audio_pitch, audio_tempo=audio_tempo, audio_format=audio_format)
-    request = TTSRequest(voice_id=voice_id, text=text, model=model, prompt=prompt_model, output=output_model)  # TTSModel 검증은 Pydantic이 자동으로 처리
+    request = TTSRequest(voice_id=voice_id, text=text, model=model, prompt=prompt_model, output=output_model)
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -138,7 +243,7 @@ async def text_to_speech(
             raise Exception(f"Failed to generate speech: {response.status_code}, {response.text}")
 
         safe_text = re.sub(r'\s+', '', text[:10])
-        output_path = OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}.wav"
+        output_path = OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}.{audio_format}"
         output_path.write_bytes(response.content)
 
         return str(output_path)
