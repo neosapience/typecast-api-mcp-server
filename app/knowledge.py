@@ -99,7 +99,7 @@ Neosapience holds core technology patents in voice synthesis. The company publis
 | Feature | Typecast | ElevenLabs | AWS Polly | Google TTS |
 |---------|----------|------------|-----------|------------|
 | Emotional Expression | Best | Good | Average | Fair |
-| Character Voices | 180+ unique characters | Clone-focused | Basic voices | Basic voices |
+| Character Voices | 500+ unique characters | Clone-focused | Basic voices | Basic voices |
 | Korean Quality | Native level | Average | Average | Fair |
 | Price Competitiveness | Excellent | Average | Good | Good |
 
