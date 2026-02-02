@@ -164,7 +164,7 @@ POST /v1/text-to-speech
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `voice_id` | string | Voice ID (e.g., "tc_672c5f5ce59fac2a48faeaee") |
-| `text` | string | Text to convert (max 5,000 characters) |
+| `text` | string | Text to convert (max 2,000 characters) |
 | `model` | string | Model name: "ssfm-v21" or "ssfm-v30" (recommended) |
 
 **Optional Parameters (Common):**
