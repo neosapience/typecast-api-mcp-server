@@ -1,3 +1,4 @@
+import base64
 import os
 import re
 from datetime import datetime
@@ -292,3 +293,263 @@ async def play_audio(file_path: str) -> str:
         return f"Successfully played audio file: {file_path}"
     except Exception as e:
         return f"Failed to play audio file: {str(e)}"
+
+
+@app.tool(
+    "text_to_speech_stream",
+    "Convert text to speech with chunked streaming for low-latency delivery",
+)
+async def text_to_speech_stream(
+    voice_id: str,
+    text: str,
+    model: str = TTSModel.SSFM_V30.value,
+    emotion_type: str = "preset",
+    emotion_preset: str = EmotionEnum.NORMAL.value,
+    emotion_intensity: float = 1.0,
+    previous_text: str | None = None,
+    next_text: str | None = None,
+    audio_pitch: int = 0,
+    audio_tempo: float = 1.0,
+    audio_format: str = "wav",
+) -> str:
+    """Convert text to speech via the streaming endpoint and save the result.
+
+    Calls POST /v1/text-to-speech/stream which returns chunked audio data
+    in real time. The chunks are concatenated and saved as a single file.
+
+    Note: the streaming endpoint does not accept volume or target_lufs (the
+    server rejects those fields). Use text_to_speech for full output controls.
+
+    Args:
+        voice_id: ID of the voice to use
+        text: Text to convert to speech
+        model: TTS model (ssfm-v21 or ssfm-v30, default: ssfm-v30)
+        emotion_type: For ssfm-v30: 'preset' or 'smart' (default: preset)
+        emotion_preset: Emotion preset name (default: normal)
+        emotion_intensity: Emotion intensity, 0.0 ~ 2.0 (default: 1.0)
+        previous_text: For smart mode - previous context text
+        next_text: For smart mode - next context text
+        audio_pitch: -12 ~ 12 (default: 0)
+        audio_tempo: 0.5 ~ 2.0 (default: 1.0)
+        audio_format: 'wav' or 'mp3' (default: wav)
+
+    Returns:
+        Path to the saved audio file
+    """
+    if not OUTPUT_DIR.exists():
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    model_enum = TTSModel(model)
+    if model_enum == TTSModel.SSFM_V30:
+        if emotion_type == "smart":
+            prompt_payload = SmartPrompt(
+                emotion_type=EmotionType.SMART,
+                previous_text=previous_text,
+                next_text=next_text,
+            ).model_dump(exclude_none=True)
+        else:
+            prompt_payload = PresetPrompt(
+                emotion_type=EmotionType.PRESET,
+                emotion_preset=emotion_preset,
+                emotion_intensity=emotion_intensity,
+            ).model_dump(exclude_none=True)
+    else:
+        prompt_payload = Prompt(
+            emotion_preset=emotion_preset,
+            emotion_intensity=emotion_intensity,
+        ).model_dump(exclude_none=True)
+
+    output_payload = {
+        "audio_pitch": audio_pitch,
+        "audio_tempo": audio_tempo,
+        "audio_format": audio_format,
+    }
+
+    request_payload = {
+        "voice_id": voice_id,
+        "text": text,
+        "model": model,
+        "prompt": prompt_payload,
+        "output": output_payload,
+    }
+
+    safe_text = re.sub(r"\s+", "", text[:10])
+    output_path = (
+        OUTPUT_DIR
+        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}_stream.{audio_format}"
+    )
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream(
+            "POST",
+            f"{API_HOST}/v1/text-to-speech/stream",
+            json=request_payload,
+            headers=HTTP_HEADERS,
+        ) as response:
+            if response.status_code != 200:
+                body = await response.aread()
+                raise Exception(
+                    f"Failed to stream speech: {response.status_code}, {body.decode(errors='ignore')}"
+                )
+
+            with output_path.open("wb") as f:
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        f.write(chunk)
+
+    return str(output_path)
+
+
+@app.tool(
+    "get_my_subscription",
+    "Get the authenticated user's subscription plan, credit usage, and concurrency limit",
+)
+async def get_my_subscription() -> dict:
+    """Get the authenticated user's subscription information.
+
+    Calls GET /v1/users/me/subscription and returns the plan tier, credits
+    (used / total), and concurrency limit.
+
+    Returns:
+        Dict with this shape:
+            {
+                "plan": "free" | "lite" | "plus" | "custom",
+                "credits": {"plan_credits": int, "used_credits": int},
+                "limits": {"concurrency_limit": int}
+            }
+    """
+    url = f"{API_HOST}/v1/users/me/subscription"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=HTTP_HEADERS)
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed to get subscription: {response.status_code}, {response.text}"
+            )
+        return response.json()
+
+
+@app.tool(
+    "text_to_speech_with_timestamps",
+    "Convert text to speech with word- or character-level timestamp alignment for caption generation",
+)
+async def text_to_speech_with_timestamps(
+    voice_id: str,
+    text: str,
+    model: str = TTSModel.SSFM_V30.value,
+    granularity: str | None = None,
+    emotion_type: str = "preset",
+    emotion_preset: str = EmotionEnum.NORMAL.value,
+    emotion_intensity: float = 1.0,
+    previous_text: str | None = None,
+    next_text: str | None = None,
+    language: str | None = None,
+    volume: int = 100,
+    audio_pitch: int = 0,
+    audio_tempo: float = 1.0,
+    audio_format: str = "wav",
+) -> dict:
+    """Convert text to speech and return timestamp alignment for caption generation.
+
+    Calls POST /v1/text-to-speech/with-timestamps. Saves the audio file and
+    returns the file path together with the raw alignment payload (words and
+    characters arrays as returned by the server).
+
+    For non-whitespace languages such as jpn or zho, pass granularity='char'
+    or 'both'. With 'word' on those languages the server collapses the entire
+    sentence into a single word segment.
+
+    Args:
+        voice_id: ID of the voice to use
+        text: Text to convert to speech
+        model: TTS model (default: ssfm-v30)
+        granularity: 'word', 'char', or 'both'. None lets the server use its
+            default (word). For jpn/zho prefer 'char' or 'both'.
+        emotion_type, emotion_preset, emotion_intensity, previous_text,
+        next_text, language, volume, audio_pitch, audio_tempo, audio_format:
+            same shape as text_to_speech.
+
+    Returns:
+        Dict:
+            - 'audio_path': str — path to the saved audio file
+            - 'words': list | None — word-level alignment when available
+            - 'characters': list | None — character-level alignment when available
+            - 'raw': dict — full server response with the audio bytes stripped
+    """
+    if not OUTPUT_DIR.exists():
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    model_enum = TTSModel(model)
+    if model_enum == TTSModel.SSFM_V30:
+        if emotion_type == "smart":
+            prompt_payload = SmartPrompt(
+                emotion_type=EmotionType.SMART,
+                previous_text=previous_text,
+                next_text=next_text,
+            ).model_dump(exclude_none=True)
+        else:
+            prompt_payload = PresetPrompt(
+                emotion_type=EmotionType.PRESET,
+                emotion_preset=emotion_preset,
+                emotion_intensity=emotion_intensity,
+            ).model_dump(exclude_none=True)
+    else:
+        prompt_payload = Prompt(
+            emotion_preset=emotion_preset,
+            emotion_intensity=emotion_intensity,
+        ).model_dump(exclude_none=True)
+
+    output_payload = Output(
+        volume=volume,
+        audio_pitch=audio_pitch,
+        audio_tempo=audio_tempo,
+        audio_format=audio_format,
+    ).model_dump(exclude_none=True)
+
+    request_payload: dict = {
+        "voice_id": voice_id,
+        "text": text,
+        "model": model,
+        "prompt": prompt_payload,
+        "output": output_payload,
+    }
+    if language:
+        request_payload["language"] = language
+    if granularity:
+        request_payload["granularity"] = granularity
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        response = await client.post(
+            f"{API_HOST}/v1/text-to-speech/with-timestamps",
+            json=request_payload,
+            headers=HTTP_HEADERS,
+        )
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed to generate timestamped speech: {response.status_code}, {response.text}"
+            )
+
+    payload = response.json()
+
+    audio_b64 = payload.get("audio", "")
+    audio_bytes = base64.b64decode(audio_b64) if audio_b64 else b""
+
+    safe_text = re.sub(r"\s+", "", text[:10])
+    audio_path = (
+        OUTPUT_DIR
+        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}_ts.{audio_format}"
+    )
+    audio_path.write_bytes(audio_bytes)
+
+    alignment = payload.get("alignment") or {}
+    words = alignment.get("words")
+    characters = alignment.get("characters")
+
+    raw = {k: v for k, v in payload.items() if k != "audio"}
+
+    return {
+        "audio_path": str(audio_path),
+        "words": words,
+        "characters": characters,
+        "raw": raw,
+    }
