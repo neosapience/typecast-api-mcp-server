@@ -19,6 +19,17 @@ API_KEY = os.environ.get("TYPECAST_API_KEY")
 OUTPUT_DIR = Path(os.environ.get("TYPECAST_OUTPUT_DIR", os.path.expanduser("~/Downloads/typecast_output")))
 HTTP_HEADERS = { "X-API-KEY": API_KEY }
 
+
+def _sanitize_for_filename(s: str) -> str:
+    """Strip path separators and other unsafe characters for filename use.
+
+    Defends against a caller passing voice_id (or any other interpolated
+    component) that contains '/', '..', or control characters, which would
+    otherwise let the resulting OUTPUT_DIR path escape the configured
+    output directory.
+    """
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", s)
+
 app = FastMCP(
     "typecast-api-mcp-server",
     instructions=TYPECAST_API_KNOWLEDGE,
@@ -277,7 +288,8 @@ async def text_to_speech(
             raise Exception(f"Failed to generate speech: {response.status_code}, {response.text}")
 
         safe_text = re.sub(r'\s+', '', text[:10])
-        output_path = OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}.{audio_format}"
+        safe_voice = _sanitize_for_filename(voice_id)
+        output_path = OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}.{audio_format}"
         output_path.write_bytes(response.content)
 
         return str(output_path)
@@ -387,9 +399,10 @@ async def text_to_speech_stream(
     }
 
     safe_text = re.sub(r"\s+", "", text[:10])
+    safe_voice = _sanitize_for_filename(voice_id)
     output_path = (
         OUTPUT_DIR
-        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}_stream.{audio_format}"
+        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_stream.{audio_format}"
     )
 
     async with httpx.AsyncClient(
@@ -552,9 +565,10 @@ async def text_to_speech_with_timestamps(
     audio_bytes = base64.b64decode(audio_b64) if audio_b64 else b""
 
     safe_text = re.sub(r"\s+", "", text[:10])
+    safe_voice = _sanitize_for_filename(voice_id)
     audio_path = (
         OUTPUT_DIR
-        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}_ts.{audio_format}"
+        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_ts.{audio_format}"
     )
     audio_path.write_bytes(audio_bytes)
 
