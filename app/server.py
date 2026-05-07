@@ -73,13 +73,18 @@ class SmartPrompt(BaseModel):
 
 
 class Output(BaseModel):
-    volume: int = Field(default=100, description="Audio volume level", ge=0, le=200)
+    volume: int | None = Field(
+        default=None,
+        description="Audio volume level (0-200). When omitted, the server applies its default. Must NOT be sent together with target_lufs — the API rejects any presence of volume alongside target_lufs.",
+        ge=0,
+        le=200,
+    )
     audio_pitch: int = Field(default=0, description="Audio pitch adjustment", ge=-12, le=12)
     audio_tempo: float = Field(default=1.0, description="Audio playback speed", ge=0.5, le=2.0)
     audio_format: str = Field(default="wav", pattern="^(wav|mp3)$", description="Audio file format")
     target_lufs: float | None = Field(
         default=None,
-        description="Absolute loudness normalization target in LUFS. Mutually exclusive with custom volume on the non-streaming endpoint, and not accepted by the streaming endpoint.",
+        description="Absolute loudness normalization target in LUFS. Mutually exclusive with volume on the non-streaming endpoint (any presence of volume causes 4xx); not accepted by the streaming endpoint at all.",
         ge=-70.0,
         le=0.0,
     )
