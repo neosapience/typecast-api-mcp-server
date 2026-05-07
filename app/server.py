@@ -76,6 +76,12 @@ class Output(BaseModel):
     audio_pitch: int = Field(default=0, description="Audio pitch adjustment", ge=-12, le=12)
     audio_tempo: float = Field(default=1.0, description="Audio playback speed", ge=0.5, le=2.0)
     audio_format: str = Field(default="wav", pattern="^(wav|mp3)$", description="Audio file format")
+    target_lufs: float | None = Field(
+        default=None,
+        description="Absolute loudness normalization target in LUFS. Mutually exclusive with custom volume on the non-streaming endpoint, and not accepted by the streaming endpoint.",
+        ge=-70.0,
+        le=0.0,
+    )
 
 
 class GenderEnum(str, Enum):
@@ -124,6 +130,7 @@ async def get_voices(
     model: str | None = None,
     gender: str | None = None,
     age: str | None = None,
+    use_cases: str | None = None,
 ) -> dict:
     """Get a list of available voices for text-to-speech using V2 API
 
@@ -131,6 +138,8 @@ async def get_voices(
         model: Optional filter for specific TTS models (ssfm-v21 or ssfm-v30).
         gender: Optional filter for voice gender (male or female).
         age: Optional filter for voice age group (child, teen, young_adult, middle_aged, senior).
+        use_cases: Optional filter for voice use case (e.g. 'audiobook', 'narration', 'documentary').
+            Pass a single use case string supported by the V2 voices endpoint.
 
     Returns:
         List of available voices with enhanced metadata including gender, age, and use cases.
@@ -142,6 +151,8 @@ async def get_voices(
         params["gender"] = GenderEnum(gender).value
     if age:
         params["age"] = AgeEnum(age).value
+    if use_cases:
+        params["use_cases"] = use_cases
 
     query_string = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{API_HOST}/v2/voices"
@@ -188,6 +199,7 @@ async def text_to_speech(
     audio_pitch: int = 0,
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
+    target_lufs: float | None = None,
 ) -> str:
     """Convert text to speech using the specified voice and parameters
 
@@ -204,6 +216,8 @@ async def text_to_speech(
         audio_pitch: Audio pitch adjustment, between -12 and 12 (default: 0)
         audio_tempo: Audio playback speed, between 0.5 and 2.0 (default: 1.0)
         audio_format: Audio format, either 'wav' or 'mp3' (default: wav)
+        target_lufs: Optional absolute loudness normalization target in LUFS (-70.0 ~ 0.0).
+            Mutually exclusive with a custom volume value on this non-streaming endpoint.
 
     Returns:
         Path to the saved audio file
@@ -230,7 +244,13 @@ async def text_to_speech(
         # ssfm-v21 uses basic Prompt
         prompt_model = Prompt(emotion_preset=emotion_preset, emotion_intensity=emotion_intensity)
 
-    output_model = Output(volume=volume, audio_pitch=audio_pitch, audio_tempo=audio_tempo, audio_format=audio_format)
+    output_model = Output(
+        volume=volume,
+        audio_pitch=audio_pitch,
+        audio_tempo=audio_tempo,
+        audio_format=audio_format,
+        target_lufs=target_lufs,
+    )
     request = TTSRequest(voice_id=voice_id, text=text, model=model, prompt=prompt_model, output=output_model)
 
     async with httpx.AsyncClient() as client:
