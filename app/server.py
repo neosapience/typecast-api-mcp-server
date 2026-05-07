@@ -1,8 +1,10 @@
+import base64
 import os
 import re
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from urllib.parse import urlencode
 
 import httpx
 import sounddevice as sd
@@ -16,6 +18,17 @@ API_HOST = os.environ.get("TYPECAST_API_HOST", "https://api.typecast.ai")
 API_KEY = os.environ.get("TYPECAST_API_KEY")
 OUTPUT_DIR = Path(os.environ.get("TYPECAST_OUTPUT_DIR", os.path.expanduser("~/Downloads/typecast_output")))
 HTTP_HEADERS = { "X-API-KEY": API_KEY }
+
+
+def _sanitize_for_filename(s: str) -> str:
+    """Strip path separators and other unsafe characters for filename use.
+
+    Defends against a caller passing voice_id (or any other interpolated
+    component) that contains '/', '..', or control characters, which would
+    otherwise let the resulting OUTPUT_DIR path escape the configured
+    output directory.
+    """
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", s)
 
 app = FastMCP(
     "typecast-api-mcp-server",
@@ -72,10 +85,21 @@ class SmartPrompt(BaseModel):
 
 
 class Output(BaseModel):
-    volume: int = Field(default=100, description="Audio volume level", ge=0, le=200)
+    volume: int | None = Field(
+        default=None,
+        description="Audio volume level (0-200). When omitted, the server applies its default. Must NOT be sent together with target_lufs — the API rejects any presence of volume alongside target_lufs.",
+        ge=0,
+        le=200,
+    )
     audio_pitch: int = Field(default=0, description="Audio pitch adjustment", ge=-12, le=12)
     audio_tempo: float = Field(default=1.0, description="Audio playback speed", ge=0.5, le=2.0)
     audio_format: str = Field(default="wav", pattern="^(wav|mp3)$", description="Audio file format")
+    target_lufs: float | None = Field(
+        default=None,
+        description="Absolute loudness normalization target in LUFS. Mutually exclusive with volume on the non-streaming endpoint (any presence of volume causes 4xx); not accepted by the streaming endpoint at all.",
+        ge=-70.0,
+        le=0.0,
+    )
 
 
 class GenderEnum(str, Enum):
@@ -124,6 +148,7 @@ async def get_voices(
     model: str | None = None,
     gender: str | None = None,
     age: str | None = None,
+    use_cases: str | None = None,
 ) -> dict:
     """Get a list of available voices for text-to-speech using V2 API
 
@@ -131,6 +156,8 @@ async def get_voices(
         model: Optional filter for specific TTS models (ssfm-v21 or ssfm-v30).
         gender: Optional filter for voice gender (male or female).
         age: Optional filter for voice age group (child, teen, young_adult, middle_aged, senior).
+        use_cases: Optional filter for voice use case (e.g. 'audiobook', 'narration', 'documentary').
+            Pass a single use case string supported by the V2 voices endpoint.
 
     Returns:
         List of available voices with enhanced metadata including gender, age, and use cases.
@@ -142,11 +169,12 @@ async def get_voices(
         params["gender"] = GenderEnum(gender).value
     if age:
         params["age"] = AgeEnum(age).value
+    if use_cases:
+        params["use_cases"] = use_cases
 
-    query_string = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{API_HOST}/v2/voices"
-    if query_string:
-        url = f"{url}?{query_string}"
+    if params:
+        url = f"{url}?{urlencode(params)}"
 
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=HTTP_HEADERS)
@@ -188,6 +216,7 @@ async def text_to_speech(
     audio_pitch: int = 0,
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
+    target_lufs: float | None = None,
 ) -> str:
     """Convert text to speech using the specified voice and parameters
 
@@ -204,6 +233,8 @@ async def text_to_speech(
         audio_pitch: Audio pitch adjustment, between -12 and 12 (default: 0)
         audio_tempo: Audio playback speed, between 0.5 and 2.0 (default: 1.0)
         audio_format: Audio format, either 'wav' or 'mp3' (default: wav)
+        target_lufs: Optional absolute loudness normalization target in LUFS (-70.0 ~ 0.0).
+            Mutually exclusive with a custom volume value on this non-streaming endpoint.
 
     Returns:
         Path to the saved audio file
@@ -230,7 +261,21 @@ async def text_to_speech(
         # ssfm-v21 uses basic Prompt
         prompt_model = Prompt(emotion_preset=emotion_preset, emotion_intensity=emotion_intensity)
 
-    output_model = Output(volume=volume, audio_pitch=audio_pitch, audio_tempo=audio_tempo, audio_format=audio_format)
+    if target_lufs is not None and volume != 100:
+        raise ValueError(
+            "target_lufs is mutually exclusive with a custom volume; "
+            "leave volume at the default (100) or unset target_lufs."
+        )
+    output_kwargs: dict = {
+        "audio_pitch": audio_pitch,
+        "audio_tempo": audio_tempo,
+        "audio_format": audio_format,
+    }
+    if target_lufs is not None:
+        output_kwargs["target_lufs"] = target_lufs
+    else:
+        output_kwargs["volume"] = volume
+    output_model = Output(**output_kwargs)
     request = TTSRequest(voice_id=voice_id, text=text, model=model, prompt=prompt_model, output=output_model)
 
     async with httpx.AsyncClient() as client:
@@ -242,8 +287,9 @@ async def text_to_speech(
         if response.status_code != 200:
             raise Exception(f"Failed to generate speech: {response.status_code}, {response.text}")
 
-        safe_text = re.sub(r'\s+', '', text[:10])
-        output_path = OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}.{audio_format}"
+        safe_text = _sanitize_for_filename(re.sub(r'\s+', '', text[:10]))
+        safe_voice = _sanitize_for_filename(voice_id)
+        output_path = OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}.{audio_format}"
         output_path.write_bytes(response.content)
 
         return str(output_path)
@@ -272,3 +318,283 @@ async def play_audio(file_path: str) -> str:
         return f"Successfully played audio file: {file_path}"
     except Exception as e:
         return f"Failed to play audio file: {str(e)}"
+
+
+@app.tool(
+    "text_to_speech_stream",
+    "Convert text to speech with chunked streaming for low-latency delivery",
+)
+async def text_to_speech_stream(
+    voice_id: str,
+    text: str,
+    model: str = TTSModel.SSFM_V30.value,
+    emotion_type: str = "preset",
+    emotion_preset: str = EmotionEnum.NORMAL.value,
+    emotion_intensity: float = 1.0,
+    previous_text: str | None = None,
+    next_text: str | None = None,
+    audio_pitch: int = 0,
+    audio_tempo: float = 1.0,
+    audio_format: str = "wav",
+) -> str:
+    """Convert text to speech via the streaming endpoint and save the result.
+
+    Calls POST /v1/text-to-speech/stream which returns chunked audio data
+    in real time. The chunks are concatenated and saved as a single file.
+
+    Note: the streaming endpoint does not accept volume or target_lufs (the
+    server rejects those fields). Use text_to_speech for full output controls.
+
+    Args:
+        voice_id: ID of the voice to use
+        text: Text to convert to speech
+        model: TTS model (ssfm-v21 or ssfm-v30, default: ssfm-v30)
+        emotion_type: For ssfm-v30: 'preset' or 'smart' (default: preset)
+        emotion_preset: Emotion preset name (default: normal)
+        emotion_intensity: Emotion intensity, 0.0 ~ 2.0 (default: 1.0)
+        previous_text: For smart mode - previous context text
+        next_text: For smart mode - next context text
+        audio_pitch: -12 ~ 12 (default: 0)
+        audio_tempo: 0.5 ~ 2.0 (default: 1.0)
+        audio_format: 'wav' or 'mp3' (default: wav)
+
+    Returns:
+        Path to the saved audio file
+    """
+    if not OUTPUT_DIR.exists():
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    model_enum = TTSModel(model)
+    if model_enum == TTSModel.SSFM_V30:
+        if emotion_type == "smart":
+            prompt_payload = SmartPrompt(
+                emotion_type=EmotionType.SMART,
+                previous_text=previous_text,
+                next_text=next_text,
+            ).model_dump(exclude_none=True)
+        else:
+            prompt_payload = PresetPrompt(
+                emotion_type=EmotionType.PRESET,
+                emotion_preset=emotion_preset,
+                emotion_intensity=emotion_intensity,
+            ).model_dump(exclude_none=True)
+    else:
+        prompt_payload = Prompt(
+            emotion_preset=emotion_preset,
+            emotion_intensity=emotion_intensity,
+        ).model_dump(exclude_none=True)
+
+    output_payload = {
+        "audio_pitch": audio_pitch,
+        "audio_tempo": audio_tempo,
+        "audio_format": audio_format,
+    }
+
+    request_payload = {
+        "voice_id": voice_id,
+        "text": text,
+        "model": model,
+        "prompt": prompt_payload,
+        "output": output_payload,
+    }
+
+    safe_text = _sanitize_for_filename(re.sub(r"\s+", "", text[:10]))
+    safe_voice = _sanitize_for_filename(voice_id)
+    output_path = (
+        OUTPUT_DIR
+        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_stream.{audio_format}"
+    )
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=30.0, read=None, pool=10.0)
+    ) as client:
+        async with client.stream(
+            "POST",
+            f"{API_HOST}/v1/text-to-speech/stream",
+            json=request_payload,
+            headers=HTTP_HEADERS,
+        ) as response:
+            if response.status_code != 200:
+                body = await response.aread()
+                raise Exception(
+                    f"Failed to stream speech: {response.status_code}, {body.decode(errors='ignore')}"
+                )
+
+            with output_path.open("wb") as f:
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        f.write(chunk)
+
+    return str(output_path)
+
+
+@app.tool(
+    "get_my_subscription",
+    "Get the authenticated user's subscription plan, credit usage, and concurrency limit",
+)
+async def get_my_subscription() -> dict:
+    """Get the authenticated user's subscription information.
+
+    Calls GET /v1/users/me/subscription and returns the plan tier, credits
+    (used / total), and concurrency limit.
+
+    Returns:
+        Dict with this shape:
+            {
+                "plan": "free" | "lite" | "plus" | "custom",
+                "credits": {"plan_credits": int, "used_credits": int},
+                "limits": {"concurrency_limit": int}
+            }
+    """
+    url = f"{API_HOST}/v1/users/me/subscription"
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=10.0, read=30.0, pool=10.0)
+    ) as client:
+        response = await client.get(url, headers=HTTP_HEADERS)
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed to get subscription: {response.status_code}, {response.text}"
+            )
+        return response.json()
+
+
+@app.tool(
+    "text_to_speech_with_timestamps",
+    "Convert text to speech with word- or character-level timestamp alignment for caption generation",
+)
+async def text_to_speech_with_timestamps(
+    voice_id: str,
+    text: str,
+    model: str = TTSModel.SSFM_V30.value,
+    granularity: str | None = None,
+    emotion_type: str = "preset",
+    emotion_preset: str = EmotionEnum.NORMAL.value,
+    emotion_intensity: float = 1.0,
+    previous_text: str | None = None,
+    next_text: str | None = None,
+    language: str | None = None,
+    volume: int = 100,
+    audio_pitch: int = 0,
+    audio_tempo: float = 1.0,
+    audio_format: str = "wav",
+    target_lufs: float | None = None,
+) -> dict:
+    """Convert text to speech and return timestamp alignment for caption generation.
+
+    Calls POST /v1/text-to-speech/with-timestamps. Saves the audio file and
+    returns the file path together with the raw alignment payload (words and
+    characters arrays as returned by the server).
+
+    For non-whitespace languages such as jpn or zho, pass granularity='char'
+    or 'both'. With 'word' on those languages the server collapses the entire
+    sentence into a single word segment.
+
+    Args:
+        voice_id: ID of the voice to use
+        text: Text to convert to speech
+        model: TTS model (default: ssfm-v30)
+        granularity: 'word', 'char', or 'both'. None lets the server use its
+            default (word). For jpn/zho prefer 'char' or 'both'.
+        emotion_type, emotion_preset, emotion_intensity, previous_text,
+        next_text, language, volume, audio_pitch, audio_tempo, audio_format:
+            same shape as text_to_speech.
+
+    Returns:
+        Dict:
+            - 'audio_path': str — path to the saved audio file
+            - 'words': list | None — word-level alignment when available
+            - 'characters': list | None — character-level alignment when available
+            - 'raw': dict — full server response with the audio bytes stripped
+    """
+    if not OUTPUT_DIR.exists():
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    model_enum = TTSModel(model)
+    if model_enum == TTSModel.SSFM_V30:
+        if emotion_type == "smart":
+            prompt_payload = SmartPrompt(
+                emotion_type=EmotionType.SMART,
+                previous_text=previous_text,
+                next_text=next_text,
+            ).model_dump(exclude_none=True)
+        else:
+            prompt_payload = PresetPrompt(
+                emotion_type=EmotionType.PRESET,
+                emotion_preset=emotion_preset,
+                emotion_intensity=emotion_intensity,
+            ).model_dump(exclude_none=True)
+    else:
+        prompt_payload = Prompt(
+            emotion_preset=emotion_preset,
+            emotion_intensity=emotion_intensity,
+        ).model_dump(exclude_none=True)
+
+    if target_lufs is not None and volume != 100:
+        raise ValueError(
+            "target_lufs is mutually exclusive with a custom volume; "
+            "leave volume at the default (100) or unset target_lufs."
+        )
+    output_kwargs: dict = {
+        "audio_pitch": audio_pitch,
+        "audio_tempo": audio_tempo,
+        "audio_format": audio_format,
+    }
+    if target_lufs is not None:
+        output_kwargs["target_lufs"] = target_lufs
+    else:
+        output_kwargs["volume"] = volume
+    output_payload = Output(**output_kwargs).model_dump(exclude_none=True)
+
+    request_payload: dict = {
+        "voice_id": voice_id,
+        "text": text,
+        "model": model,
+        "prompt": prompt_payload,
+        "output": output_payload,
+    }
+    if language:
+        request_payload["language"] = language
+    if granularity:
+        request_payload["granularity"] = granularity
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=30.0, read=120.0, pool=10.0)
+    ) as client:
+        response = await client.post(
+            f"{API_HOST}/v1/text-to-speech/with-timestamps",
+            json=request_payload,
+            headers=HTTP_HEADERS,
+        )
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed to generate timestamped speech: {response.status_code}, {response.text}"
+            )
+
+    payload = response.json()
+
+    audio_b64 = payload.get("audio", "")
+    audio_bytes = base64.b64decode(audio_b64) if audio_b64 else b""
+
+    safe_text = _sanitize_for_filename(re.sub(r"\s+", "", text[:10]))
+    safe_voice = _sanitize_for_filename(voice_id)
+    audio_path = (
+        OUTPUT_DIR
+        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_ts.{audio_format}"
+    )
+    audio_path.write_bytes(audio_bytes)
+
+    # Server returns words / characters at the top level of the response,
+    # matching typecast-go/timestamps.go (TTSWithTimestampsResponse). There
+    # is no `alignment` wrapper.
+    words = payload.get("words")
+    characters = payload.get("characters")
+
+    raw = {k: v for k, v in payload.items() if k != "audio"}
+
+    return {
+        "audio_path": str(audio_path),
+        "words": words,
+        "characters": characters,
+        "raw": raw,
+    }
