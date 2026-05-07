@@ -245,13 +245,21 @@ async def text_to_speech(
         # ssfm-v21 uses basic Prompt
         prompt_model = Prompt(emotion_preset=emotion_preset, emotion_intensity=emotion_intensity)
 
-    output_model = Output(
-        volume=volume,
-        audio_pitch=audio_pitch,
-        audio_tempo=audio_tempo,
-        audio_format=audio_format,
-        target_lufs=target_lufs,
-    )
+    if target_lufs is not None and volume != 100:
+        raise ValueError(
+            "target_lufs is mutually exclusive with a custom volume; "
+            "leave volume at the default (100) or unset target_lufs."
+        )
+    output_kwargs: dict = {
+        "audio_pitch": audio_pitch,
+        "audio_tempo": audio_tempo,
+        "audio_format": audio_format,
+    }
+    if target_lufs is not None:
+        output_kwargs["target_lufs"] = target_lufs
+    else:
+        output_kwargs["volume"] = volume
+    output_model = Output(**output_kwargs)
     request = TTSRequest(voice_id=voice_id, text=text, model=model, prompt=prompt_model, output=output_model)
 
     async with httpx.AsyncClient() as client:
