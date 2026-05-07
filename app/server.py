@@ -476,6 +476,7 @@ async def text_to_speech_with_timestamps(
     audio_pitch: int = 0,
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
+    target_lufs: float | None = None,
 ) -> dict:
     """Convert text to speech and return timestamp alignment for caption generation.
 
@@ -527,12 +528,21 @@ async def text_to_speech_with_timestamps(
             emotion_intensity=emotion_intensity,
         ).model_dump(exclude_none=True)
 
-    output_payload = Output(
-        volume=volume,
-        audio_pitch=audio_pitch,
-        audio_tempo=audio_tempo,
-        audio_format=audio_format,
-    ).model_dump(exclude_none=True)
+    if target_lufs is not None and volume != 100:
+        raise ValueError(
+            "target_lufs is mutually exclusive with a custom volume; "
+            "leave volume at the default (100) or unset target_lufs."
+        )
+    output_kwargs: dict = {
+        "audio_pitch": audio_pitch,
+        "audio_tempo": audio_tempo,
+        "audio_format": audio_format,
+    }
+    if target_lufs is not None:
+        output_kwargs["target_lufs"] = target_lufs
+    else:
+        output_kwargs["volume"] = volume
+    output_payload = Output(**output_kwargs).model_dump(exclude_none=True)
 
     request_payload: dict = {
         "voice_id": voice_id,
