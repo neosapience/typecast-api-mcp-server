@@ -553,9 +553,11 @@ async def text_to_speech_with_timestamps(
     )
     audio_path.write_bytes(audio_bytes)
 
-    alignment = payload.get("alignment") or {}
-    words = alignment.get("words")
-    characters = alignment.get("characters")
+    # Server returns words / characters at the top level of the response,
+    # matching typecast-go/timestamps.go (TTSWithTimestampsResponse). There
+    # is no `alignment` wrapper.
+    words = payload.get("words")
+    characters = payload.get("characters")
 
     raw = {k: v for k, v in payload.items() if k != "audio"}
 
