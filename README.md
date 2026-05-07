@@ -20,16 +20,24 @@ This project implements a Model [Context Protocol server](https://modelcontextpr
 
 ## Feature Implementation Status
 
-| Feature              | Status |
-| -------------------- | ------ |
-| **Voice Management** |        |
-| Get Voices (V2 API)  | ✅     |
-| Get Voice (V2 API)   | ✅     |
-| Text to Speech       | ✅     |
-| Play Audio           | ✅     |
-| **ssfm-v30 Support** |        |
-| Preset Mode          | ✅     |
-| Smart Mode           | ✅     |
+| Feature                          | Status |
+| -------------------------------- | ------ |
+| **Voice Management**             |        |
+| Get Voices (V2 API)              | ✅     |
+| Get Voices `use_cases` filter    | ✅     |
+| Get Voice (V2 API)               | ✅     |
+| Text to Speech                   | ✅     |
+| Text to Speech (Streaming)       | ✅     |
+| Text to Speech (with Timestamps) | ✅     |
+| Get My Subscription              | ✅     |
+| Play Audio                       | ✅     |
+| **Output Controls**              |        |
+| `target_lufs` loudness norm      | ✅     |
+| **ssfm-v30 Support**             |        |
+| Preset Mode                      | ✅     |
+| Smart Mode                       | ✅     |
+| **Quick Voice Cloning**          |        |
+| Clone / Delete Voice             | ⏳ pending typecast-sdk PR #32, #33 prod release |
 
 ## Setup
 
