@@ -287,7 +287,7 @@ async def text_to_speech(
         if response.status_code != 200:
             raise Exception(f"Failed to generate speech: {response.status_code}, {response.text}")
 
-        safe_text = re.sub(r'\s+', '', text[:10])
+        safe_text = _sanitize_for_filename(re.sub(r'\s+', '', text[:10]))
         safe_voice = _sanitize_for_filename(voice_id)
         output_path = OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}.{audio_format}"
         output_path.write_bytes(response.content)
@@ -398,7 +398,7 @@ async def text_to_speech_stream(
         "output": output_payload,
     }
 
-    safe_text = re.sub(r"\s+", "", text[:10])
+    safe_text = _sanitize_for_filename(re.sub(r"\s+", "", text[:10]))
     safe_voice = _sanitize_for_filename(voice_id)
     output_path = (
         OUTPUT_DIR
@@ -448,7 +448,9 @@ async def get_my_subscription() -> dict:
     """
     url = f"{API_HOST}/v1/users/me/subscription"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=10.0, read=30.0, pool=10.0)
+    ) as client:
         response = await client.get(url, headers=HTTP_HEADERS)
         if response.status_code != 200:
             raise Exception(
@@ -574,7 +576,7 @@ async def text_to_speech_with_timestamps(
     audio_b64 = payload.get("audio", "")
     audio_bytes = base64.b64decode(audio_b64) if audio_b64 else b""
 
-    safe_text = re.sub(r"\s+", "", text[:10])
+    safe_text = _sanitize_for_filename(re.sub(r"\s+", "", text[:10]))
     safe_voice = _sanitize_for_filename(voice_id)
     audio_path = (
         OUTPUT_DIR
