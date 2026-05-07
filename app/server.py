@@ -387,7 +387,9 @@ async def text_to_speech_stream(
         / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{voice_id}_{safe_text}_stream.{audio_format}"
     )
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=30.0, read=None, pool=10.0)
+    ) as client:
         async with client.stream(
             "POST",
             f"{API_HOST}/v1/text-to-speech/stream",
@@ -526,7 +528,9 @@ async def text_to_speech_with_timestamps(
     if granularity:
         request_payload["granularity"] = granularity
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=30.0, read=120.0, pool=10.0)
+    ) as client:
         response = await client.post(
             f"{API_HOST}/v1/text-to-speech/with-timestamps",
             json=request_payload,
