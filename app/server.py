@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from urllib.parse import urlencode
 
 import httpx
 import sounddevice as sd
@@ -160,10 +161,9 @@ async def get_voices(
     if use_cases:
         params["use_cases"] = use_cases
 
-    query_string = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{API_HOST}/v2/voices"
-    if query_string:
-        url = f"{url}?{query_string}"
+    if params:
+        url = f"{url}?{urlencode(params)}"
 
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=HTTP_HEADERS)
