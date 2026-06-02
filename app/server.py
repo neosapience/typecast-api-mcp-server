@@ -285,6 +285,11 @@ async def clone_voice(
         result = {"raw": payload}
 
     voice_id = result.get("voice_id") or result.get("voiceId")
+    if not voice_id:
+        raise ValueError(f"Failed to extract voice_id from clone response: {payload}")
+    if not voice_id.startswith("uc_"):
+        raise ValueError("Only cloned voice IDs that start with 'uc_' can be deleted.")
+
     voice_name = result.get("name") or result.get("voice_name") or name
 
     return {
