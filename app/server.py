@@ -1,4 +1,5 @@
 import base64
+import mimetypes
 import os
 import re
 from datetime import datetime
@@ -18,6 +19,7 @@ API_HOST = os.environ.get("TYPECAST_API_HOST", "https://api.typecast.ai")
 API_KEY = os.environ.get("TYPECAST_API_KEY")
 OUTPUT_DIR = Path(os.environ.get("TYPECAST_OUTPUT_DIR", os.path.expanduser("~/Downloads/typecast_output")))
 HTTP_HEADERS = { "X-API-KEY": API_KEY }
+QUICK_CLONING_MAX_FILE_SIZE = 25 * 1024 * 1024
 
 
 def _sanitize_for_filename(s: str) -> str:
@@ -29,6 +31,32 @@ def _sanitize_for_filename(s: str) -> str:
     output directory.
     """
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", s)
+
+
+def _validate_quick_clone_audio_path(audio_file_path: str) -> tuple[Path, str, int]:
+    audio_path = Path(audio_file_path).expanduser()
+    if not audio_path.exists() or not audio_path.is_file():
+        raise ValueError(f"Audio file does not exist: {audio_file_path}")
+
+    file_size = audio_path.stat().st_size
+    if file_size > QUICK_CLONING_MAX_FILE_SIZE:
+        raise ValueError(
+            f"Audio file exceeds the 25 MB quick cloning limit; got {file_size} bytes."
+        )
+
+    content_type = mimetypes.guess_type(audio_path.name)[0]
+    if content_type == "audio/x-wav":
+        content_type = "audio/wav"
+    if content_type not in {"audio/wav", "audio/mpeg"}:
+        suffix = audio_path.suffix.lower()
+        if suffix == ".wav":
+            content_type = "audio/wav"
+        elif suffix == ".mp3":
+            content_type = "audio/mpeg"
+        else:
+            raise ValueError("Quick cloning accepts WAV or MP3 audio only.")
+
+    return audio_path, content_type, file_size
 
 app = FastMCP(
     "typecast-api-mcp-server",
@@ -200,6 +228,105 @@ async def get_voice(voice_id: str) -> dict:
         if response.status_code != 200:
             raise Exception(f"Failed to get voice: {response.status_code}")
         return response.json()
+
+
+@app.tool("clone_voice", "Create a quick-cloned custom voice from a local WAV or MP3 audio sample")
+async def clone_voice(
+    name: str,
+    audio_file_path: str,
+    model: str = TTSModel.SSFM_V30.value,
+) -> dict:
+    """Create a quick-cloned custom voice.
+
+    Calls POST /v1/voices/clone with multipart form data. Use the returned
+    voice_id with text_to_speech, text_to_speech_stream, or
+    text_to_speech_with_timestamps. Delete temporary cloned voices with
+    delete_cloned_voice when they are no longer needed.
+
+    Args:
+        name: Display name for the cloned voice. Must be 1-30 characters.
+        audio_file_path: Local WAV or MP3 sample path. Maximum file size is 25 MB.
+        model: Voice cloning model. Default: ssfm-v30.
+
+    Returns:
+        Dict returned by the Typecast API plus normalized handoff fields:
+            voice_id, cloned_voice_id, next_step_voice_id, next_step_model.
+    """
+    char_count = len(name)
+    if char_count < 1 or char_count > 30:
+        raise ValueError(f"Voice name must be 1-30 characters; got {char_count}.")
+
+    model_enum = TTSModel(model)
+    audio_path, content_type, file_size = _validate_quick_clone_audio_path(audio_file_path)
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=120.0, read=120.0, pool=10.0)
+    ) as client:
+        with audio_path.open("rb") as audio_file:
+            response = await client.post(
+                f"{API_HOST}/v1/voices/clone",
+                headers=HTTP_HEADERS,
+                data={"name": name, "model": model_enum.value},
+                files={
+                    "file": (
+                        audio_path.name,
+                        audio_file,
+                        content_type,
+                    )
+                },
+            )
+
+    if response.status_code not in {200, 201}:
+        raise Exception(f"Failed to clone voice: {response.status_code}, {response.text}")
+
+    payload = response.json()
+    result = payload.get("result") or payload.get("data") or payload
+    if not isinstance(result, dict):
+        result = {"raw": payload}
+
+    voice_id = result.get("voice_id") or result.get("voiceId")
+    if not voice_id:
+        raise ValueError(f"Failed to extract voice_id from clone response: {payload}")
+    if not voice_id.startswith("uc_"):
+        raise ValueError("Only cloned voice IDs that start with 'uc_' can be deleted.")
+
+    voice_name = result.get("name") or result.get("voice_name") or name
+
+    return {
+        **result,
+        "voice_id": voice_id,
+        "cloned_voice_id": voice_id,
+        "voice_name": voice_name,
+        "name": voice_name,
+        "model": result.get("model") or model_enum.value,
+        "file_size": file_size,
+        "next_step_voice_id": voice_id,
+        "next_step_model": result.get("model") or model_enum.value,
+    }
+
+
+@app.tool("delete_cloned_voice", "Delete a quick-cloned custom voice by voice ID")
+async def delete_cloned_voice(voice_id: str) -> dict:
+    """Delete a quick-cloned custom voice.
+
+    Args:
+        voice_id: Cloned voice ID returned by clone_voice. Must start with uc_.
+
+    Returns:
+        Dict with success=true and the deleted voice_id.
+    """
+    if not voice_id.startswith("uc_"):
+        raise ValueError("Only cloned voice IDs that start with 'uc_' can be deleted.")
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=10.0, read=30.0, pool=10.0)
+    ) as client:
+        response = await client.delete(f"{API_HOST}/v1/voices/{voice_id}", headers=HTTP_HEADERS)
+
+    if response.status_code not in {200, 204}:
+        raise Exception(f"Failed to delete cloned voice: {response.status_code}, {response.text}")
+
+    return {"id": voice_id, "voice_id": voice_id, "success": True}
 
 
 @app.tool("text_to_speech", "Convert text to speech using the specified voice and parameters")

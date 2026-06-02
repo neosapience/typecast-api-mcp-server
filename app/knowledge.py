@@ -223,6 +223,32 @@ GET /v1/voices?model=ssfm-v21
 GET /v1/voices/{voice_id}
 ```
 
+#### 5. Quick Voice Cloning
+```
+POST /v1/voices/clone
+DELETE /v1/voices/{voice_id}
+```
+
+Quick Voice Cloning creates a custom cloned voice from a short WAV or MP3 audio
+sample. Use it when a user needs a temporary custom voice and then wants to
+generate speech with that cloned voice.
+
+**Clone Voice Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | Display name for the cloned voice. Must be 1-30 characters. |
+| `model` | string | Voice cloning model. Use `ssfm-v30` by default. |
+| `file` | binary | WAV or MP3 audio sample. Maximum size is 25 MB. |
+
+**Delete Cloned Voice:**
+- Only cloned custom voice IDs that start with `uc_` should be deleted.
+- Built-in Typecast voices usually start with `tc_` and should not be passed to delete.
+
+**Recommended workflow:**
+1. Clone a voice with `POST /v1/voices/clone`.
+2. Use the returned `voice_id` with `POST /v1/text-to-speech`.
+3. Delete the cloned voice with `DELETE /v1/voices/{voice_id}` when no longer needed.
+
 ### API Characteristics
 - **Synchronous**: The API returns audio data directly in the response
 - **No SSML Support**: Currently SSML is not supported (use speed/volume parameters instead)
@@ -321,6 +347,51 @@ if response.status_code == 200:
     print("Audio saved successfully!")
 else:
     print(f"Error: {response.status_code} - {response.text}")
+```
+
+### Python (Direct API) - Quick Voice Cloning
+
+```python
+import requests
+
+api_key = "YOUR_API_KEY"
+
+with open("sample.wav", "rb") as audio_file:
+    clone_response = requests.post(
+        "https://api.typecast.ai/v1/voices/clone",
+        headers={"X-API-KEY": api_key},
+        data={"name": "My Cloned Voice", "model": "ssfm-v30"},
+        files={"file": ("sample.wav", audio_file, "audio/wav")},
+    )
+clone_response.raise_for_status()
+
+cloned_voice = clone_response.json()
+clone_result = cloned_voice.get("result") or cloned_voice.get("data") or cloned_voice
+voice_id = clone_result.get("voice_id") or clone_result.get("voiceId")
+if not voice_id:
+    raise ValueError(f"voice_id not found in clone response: {cloned_voice}")
+
+speech_response = requests.post(
+    "https://api.typecast.ai/v1/text-to-speech",
+    headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+    json={
+        "text": "Hello from my cloned voice.",
+        "model": "ssfm-v30",
+        "voice_id": voice_id,
+    },
+)
+speech_response.raise_for_status()
+
+with open("cloned_voice_output.wav", "wb") as f:
+    f.write(speech_response.content)
+
+if not voice_id.startswith("uc_"):
+    raise ValueError(f"Refusing to delete non-cloned voice ID: {voice_id}")
+
+requests.delete(
+    f"https://api.typecast.ai/v1/voices/{voice_id}",
+    headers={"X-API-KEY": api_key},
+).raise_for_status()
 ```
 
 ### JavaScript/TypeScript (Using SDK) - Recommended
@@ -634,4 +705,3 @@ Typecast SSFM is also available on AWS Marketplace. Suitable for enterprises tha
 - [API Reference](https://typecast.ai/docs/api-reference)
 - [AWS Marketplace](https://aws.amazon.com/marketplace/seller-profile?id=seller-rauqp3qawr25s)
 """
-
