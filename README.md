@@ -37,7 +37,28 @@ This project implements a Model [Context Protocol server](https://modelcontextpr
 | Preset Mode                      | ✅     |
 | Smart Mode                       | ✅     |
 | **Quick Voice Cloning**          |        |
-| Clone / Delete Voice             | ⏳ pending typecast-sdk PR #32, #33 prod release |
+| Clone Voice                      | ✅     |
+| Delete Cloned Voice              | ✅     |
+
+## Quick Voice Cloning
+
+The MCP server exposes two tools for temporary custom voice workflows:
+
+- `clone_voice`: creates a quick-cloned custom voice from a local WAV or MP3 file.
+- `delete_cloned_voice`: deletes a cloned voice ID that starts with `uc_`.
+
+Quick cloning constraints:
+
+- Voice name must be 1-30 characters.
+- Audio sample must be WAV or MP3.
+- Audio sample must be 25 MB or smaller.
+- Use `ssfm-v30` unless you have a specific compatibility reason.
+
+Typical flow:
+
+1. Run `clone_voice` with `name`, `audio_file_path`, and optional `model`.
+2. Use the returned `next_step_voice_id` and `next_step_model` in `text_to_speech`, `text_to_speech_stream`, or `text_to_speech_with_timestamps`.
+3. Run `delete_cloned_voice` when the temporary cloned voice is no longer needed.
 
 ## Setup
 
