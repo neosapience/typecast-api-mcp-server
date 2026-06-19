@@ -366,6 +366,9 @@ async def text_to_speech(
     Returns:
         Path to the saved audio file
     """
+    if target_lufs is not None and not (-70.0 <= target_lufs <= 0.0):
+        raise ValueError(f"target_lufs must be between -70.0 and 0.0, got {target_lufs}")
+
     if not OUTPUT_DIR.exists():
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
