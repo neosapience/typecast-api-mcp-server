@@ -124,7 +124,7 @@ class Output(BaseModel):
     audio_format: str = Field(default="wav", pattern="^(wav|mp3)$", description="Audio file format")
     target_lufs: float | None = Field(
         default=None,
-        description="Absolute loudness normalization target in LUFS. Mutually exclusive with volume on the non-streaming endpoint (any presence of volume causes 4xx); not accepted by the streaming endpoint at all.",
+        description="Absolute loudness normalization target in LUFS. Mutually exclusive with volume on the non-streaming endpoint (any presence of volume causes 4xx). Supported by streaming TTS.",
         ge=-70.0,
         le=0.0,
     )
@@ -366,6 +366,9 @@ async def text_to_speech(
     Returns:
         Path to the saved audio file
     """
+    if target_lufs is not None and not (-70.0 <= target_lufs <= 0.0):
+        raise ValueError(f"target_lufs must be between -70.0 and 0.0, got {target_lufs}")
+
     if not OUTPUT_DIR.exists():
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -463,14 +466,15 @@ async def text_to_speech_stream(
     audio_pitch: int = 0,
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
+    target_lufs: float | None = None,
 ) -> str:
     """Convert text to speech via the streaming endpoint and save the result.
 
     Calls POST /v1/text-to-speech/stream which returns chunked audio data
     in real time. The chunks are concatenated and saved as a single file.
 
-    Note: the streaming endpoint does not accept volume or target_lufs (the
-    server rejects those fields). Use text_to_speech for full output controls.
+    Note: the streaming endpoint does not accept volume, but supports
+    target_lufs for absolute loudness normalization.
 
     Args:
         voice_id: ID of the voice to use
@@ -484,6 +488,7 @@ async def text_to_speech_stream(
         audio_pitch: -12 ~ 12 (default: 0)
         audio_tempo: 0.5 ~ 2.0 (default: 1.0)
         audio_format: 'wav' or 'mp3' (default: wav)
+        target_lufs: Optional absolute loudness normalization target in LUFS (-70.0 ~ 0.0)
 
     Returns:
         Path to the saved audio file
@@ -516,6 +521,8 @@ async def text_to_speech_stream(
         "audio_tempo": audio_tempo,
         "audio_format": audio_format,
     }
+    if target_lufs is not None:
+        output_payload["target_lufs"] = target_lufs
 
     request_payload = {
         "voice_id": voice_id,
