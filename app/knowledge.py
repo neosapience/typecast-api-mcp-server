@@ -212,18 +212,29 @@ GET /v2/voices?model=ssfm-v30&gender=female&age=young_adult
 | `age` | string | Filter by age: "child", "teen", "young_adult", "middle_aged", "senior" |
 | `use_cases` | string | Filter by use case |
 
-#### 3. List Voices (V1 API - Legacy)
+#### 3. Recommend Voices
+```
+GET /v1/voices/recommendations?query=warm%20female%20voice%20for%20product%20tutorial&count=5
+```
+
+Use this endpoint when a user describes the desired voice style but does not
+know the exact voice ID. It returns recommended `voice_id`, `voice_name`, and
+`score` values only. For details such as supported models, emotions, gender,
+age, and use cases, call `GET /v2/voices` or `GET /v2/voices/{voice_id}` with
+the returned IDs.
+
+#### 4. List Voices (V1 API - Legacy)
 ```
 GET /v1/voices
 GET /v1/voices?model=ssfm-v21
 ```
 
-#### 4. Get Specific Voice
+#### 5. Get Specific Voice
 ```
 GET /v1/voices/{voice_id}
 ```
 
-#### 5. Quick Voice Cloning
+#### 6. Quick Voice Cloning
 ```
 POST /v1/voices/clone
 DELETE /v1/voices/{voice_id}

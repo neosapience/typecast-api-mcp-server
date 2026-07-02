@@ -161,6 +161,13 @@ class VoiceV2(BaseModel):
     use_cases: list[str] | None = Field(default=None, description="Recommended use cases")
 
 
+class RecommendedVoice(BaseModel):
+    """Recommended voice candidate returned by the recommendation API."""
+    voice_id: str = Field(description="Recommended Typecast voice identifier")
+    voice_name: str = Field(description="Display name returned with the recommendation")
+    score: float = Field(description="Recommendation relevance score")
+
+
 class TTSRequest(BaseModel):
     voice_id: str = Field(description="Voice identifier to use")
     text: str = Field(description="Text to convert to speech")
@@ -209,6 +216,37 @@ async def get_voices(
         if response.status_code != 200:
             raise Exception(f"Failed to get voices: {response.status_code}")
         return response.json()
+
+
+@app.tool("recommend_voices", "Recommend Typecast voices from a text description")
+async def recommend_voices(query: str, count: int = 5) -> list[dict]:
+    """Recommend voices that match a natural-language text description.
+
+    The recommendation API returns only voice_id, voice_name, and score. Call
+    get_voices or get_voice with the returned IDs when you need metadata such as
+    supported models, emotions, gender, age, or use cases before making a TTS
+    request.
+
+    Args:
+        query: Text description of the desired style, mood, language, use case,
+            or content context.
+        count: Maximum number of recommendations to return. Must be 1-10.
+
+    Returns:
+        Recommended voice candidates sorted by relevance score.
+    """
+    if not query.strip():
+        raise ValueError("query is required")
+    if count < 1 or count > 10:
+        raise ValueError("count must be between 1 and 10")
+
+    url = f"{API_HOST}/v1/voices/recommendations?{urlencode({'query': query, 'count': count})}"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=HTTP_HEADERS)
+        if response.status_code != 200:
+            raise Exception(f"Failed to recommend voices: {response.status_code}")
+        return [RecommendedVoice(**voice).model_dump() for voice in response.json()]
 
 
 @app.tool("get_voice", "Get detailed information for a specific voice by ID using V2 API")

@@ -26,6 +26,7 @@ This project implements a Model [Context Protocol server](https://modelcontextpr
 | Get Voices (V2 API)              | ✅     |
 | Get Voices `use_cases` filter    | ✅     |
 | Get Voice (V2 API)               | ✅     |
+| Recommend Voices                 | ✅     |
 | Text to Speech                   | ✅     |
 | Text to Speech (Streaming)       | ✅     |
 | Text to Speech (with Timestamps) | ✅     |
@@ -59,6 +60,17 @@ Typical flow:
 1. Run `clone_voice` with `name`, `audio_file_path`, and optional `model`.
 2. Use the returned `next_step_voice_id` and `next_step_model` in `text_to_speech`, `text_to_speech_stream`, or `text_to_speech_with_timestamps`.
 3. Run `delete_cloned_voice` when the temporary cloned voice is no longer needed.
+
+## Voice Recommendations
+
+Use `recommend_voices` when you know the desired style, mood, language, or use
+case but do not know the exact voice ID yet. It calls
+`GET /v1/voices/recommendations` and returns candidates sorted by score.
+
+The recommendation response intentionally contains only `voice_id`,
+`voice_name`, and `score`. If an agent needs details about a recommended voice,
+call `get_voice` for each returned ID or `get_voices` for a broader filtered
+list before using the ID in TTS.
 
 ## Setup
 
