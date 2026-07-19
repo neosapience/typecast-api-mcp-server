@@ -1268,13 +1268,13 @@ requires-dist = [
     { name = "click" },
     { name = "cryptography", specifier = ">=48.0.1" },
     { name = "httpx" },
-    { name = "mcp", specifier = ">=1.28.1" },
+    { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "sounddevice" },
     { name = "soundfile" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "mcp", extras = ["cli"], specifier = ">=1.28.1" }]
+dev = [{ name = "mcp", extras = ["cli"], specifier = ">=1.28.1,<2" }]
 
 [[package]]
 name = "typer"
