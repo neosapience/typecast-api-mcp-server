@@ -6,7 +6,7 @@ authors = [{ name = "Hyunseung Lee", email = "hyunseung@neosapience.com" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp",
+    "mcp>=1.28.1",
     "httpx",
     "sounddevice",
     "soundfile",
@@ -25,7 +25,7 @@ typecast-api-mcp-server = "app.main:main"
 packages = ["app"]
 
 [dependency-groups]
-dev = ["mcp[cli]>=1.6.0"]
+dev = ["mcp[cli]>=1.28.1"]
 
 [tool.hatch.build]
 include = ["app/**/*.py", "README.md", "LICENSE"]
