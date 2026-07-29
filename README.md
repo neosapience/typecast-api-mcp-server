@@ -96,6 +96,10 @@ unguessable download URL that expires after one hour. `play_audio` remains a
 local-only tool because a hosted server cannot play sound on the MCP client's
 device.
 
+On the hosted server, `clone_voice` accepts only `audio_base64` together with
+an `audio_filename` ending in `.wav` or `.mp3`. `audio_file_path` is available
+only when this MCP server runs locally.
+
 ### Environment Variables
 
 Set the following environment variables:

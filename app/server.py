@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+import anyio
 import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
@@ -24,7 +25,7 @@ API_HOST = os.environ.get("TYPECAST_API_HOST", "https://api.typecast.ai")
 API_KEY = os.environ.get("TYPECAST_API_KEY")
 OUTPUT_DIR = Path(os.environ.get("TYPECAST_OUTPUT_DIR", os.path.expanduser("~/Downloads/typecast_output")))
 DOCS_SERVICE_URL = os.environ.get("DOCS_SERVICE_URL", "https://typecast.ai/docs").rstrip("/")
-PUBLIC_MCP_URL = os.environ.get("PUBLIC_MCP_URL", "https://typecast.ai/docs/mcp").rstrip("/")
+PUBLIC_FILE_URL = os.environ.get("PUBLIC_FILE_URL", "https://typecast.ai/docs/mcp/files").rstrip("/")
 REMOTE_MODE = os.environ.get("MCP_REMOTE_MODE", "").lower() in {"1", "true", "yes"}
 REMOTE_FILE_TTL_SECONDS = int(os.environ.get("MCP_FILE_TTL_SECONDS", "3600"))
 QUICK_CLONING_MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -132,28 +133,39 @@ def _quick_clone_audio(
         return Path(audio_filename).name, content, "audio/wav" if suffix == ".wav" else "audio/mpeg", len(content)
     if not audio_file_path:
         raise ValueError("Provide audio_file_path locally or audio_base64 when using the remote server.")
+    if REMOTE_MODE:
+        raise ValueError("audio_file_path is not supported remotely; send audio_base64 and audio_filename.")
     audio_path, content_type, file_size = _validate_quick_clone_audio_path(audio_file_path)
     return audio_path.name, audio_path.read_bytes(), content_type, file_size
 
 
-def _new_output_path(filename: str, audio_format: str) -> Path:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    if not REMOTE_MODE:
-        return OUTPUT_DIR / filename
+def _cleanup_expired_files() -> None:
     now = time.time()
     for existing in OUTPUT_DIR.glob("*"):
         if existing.is_file() and now - existing.stat().st_mtime > REMOTE_FILE_TTL_SECONDS:
             existing.unlink(missing_ok=True)
+
+
+async def _new_output_path(filename: str, audio_format: str) -> Path:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not REMOTE_MODE:
+        return OUTPUT_DIR / filename
+    await anyio.to_thread.run_sync(_cleanup_expired_files)
     return OUTPUT_DIR / f"{secrets.token_urlsafe(32)}.{audio_format}"
 
 
-def _audio_result(output_path: Path) -> str | dict:
+def _audio_fields(output_path: Path) -> dict:
     if not REMOTE_MODE:
-        return str(output_path)
+        return {"audio_path": str(output_path)}
     return {
-        "audio_url": f"{PUBLIC_MCP_URL}/files/{output_path.name}",
+        "audio_url": f"{PUBLIC_FILE_URL}/{output_path.name}",
         "expires_in_seconds": REMOTE_FILE_TTL_SECONDS,
     }
+
+
+def _audio_result(output_path: Path) -> str | dict:
+    fields = _audio_fields(output_path)
+    return fields if REMOTE_MODE else fields["audio_path"]
 
 app = TypecastMCP(
     "typecast-api-mcp-server",
@@ -165,6 +177,8 @@ app = TypecastMCP(
 
 
 def create_http_app():
+    if not REMOTE_MODE:
+        raise RuntimeError("MCP_REMOTE_MODE=true is required for Streamable HTTP")
     return ApiKeyMiddleware(app.streamable_http_app())
 
 
@@ -202,7 +216,9 @@ async def search_documentation(query: str, limit: int = 5) -> list[dict]:
             params={"q": query, "limit": limit},
         )
         response.raise_for_status()
-        return response.json()["results"]
+        payload = response.json()
+        results = payload.get("results", []) if isinstance(payload, dict) else []
+        return results if isinstance(results, list) else []
 
 
 class TTSModel(str, Enum):
@@ -542,7 +558,8 @@ async def text_to_speech(
             Mutually exclusive with a custom volume value on this non-streaming endpoint.
 
     Returns:
-        Path to the saved audio file
+        Local mode: path to the saved audio file.
+        Remote mode: dict with audio_url and expires_in_seconds.
     """
     if target_lufs is not None and not (-70.0 <= target_lufs <= 0.0):
         raise ValueError(f"target_lufs must be between -70.0 and 0.0, got {target_lufs}")
@@ -594,7 +611,7 @@ async def text_to_speech(
 
         safe_text = _sanitize_for_filename(re.sub(r'\s+', '', text[:10]))
         safe_voice = _sanitize_for_filename(voice_id)
-        output_path = _new_output_path(
+        output_path = await _new_output_path(
             f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}.{audio_format}",
             audio_format,
         )
@@ -672,7 +689,8 @@ async def text_to_speech_stream(
         target_lufs: Optional absolute loudness normalization target in LUFS (-70.0 ~ 0.0)
 
     Returns:
-        Path to the saved audio file
+        Local mode: path to the saved audio file.
+        Remote mode: dict with audio_url and expires_in_seconds.
     """
     model_enum = TTSModel(model)
     if model_enum == TTSModel.SSFM_V30:
@@ -712,7 +730,7 @@ async def text_to_speech_stream(
 
     safe_text = _sanitize_for_filename(re.sub(r"\s+", "", text[:10]))
     safe_voice = _sanitize_for_filename(voice_id)
-    output_path = _new_output_path(
+    output_path = await _new_output_path(
         f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_stream.{audio_format}",
         audio_format,
     )
@@ -814,7 +832,8 @@ async def text_to_speech_with_timestamps(
 
     Returns:
         Dict:
-            - 'audio_path': str — path to the saved audio file
+            - local mode: 'audio_path' — path to the saved audio file
+            - remote mode: 'audio_url' and 'expires_in_seconds'
             - 'words': list | None — word-level alignment when available
             - 'characters': list | None — character-level alignment when available
             - 'raw': dict — full server response with the audio bytes stripped
@@ -887,7 +906,7 @@ async def text_to_speech_with_timestamps(
 
     safe_text = _sanitize_for_filename(re.sub(r"\s+", "", text[:10]))
     safe_voice = _sanitize_for_filename(voice_id)
-    audio_path = _new_output_path(
+    audio_path = await _new_output_path(
         f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_ts.{audio_format}",
         audio_format,
     )
@@ -902,7 +921,7 @@ async def text_to_speech_with_timestamps(
     raw = {k: v for k, v in payload.items() if k != "audio"}
 
     return {
-        **({"audio_path": str(audio_path)} if not REMOTE_MODE else _audio_result(audio_path)),
+        **_audio_fields(audio_path),
         "words": words,
         "characters": characters,
         "raw": raw,
