@@ -21,18 +21,27 @@ from starlette.requests import Request
 
 
 class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
-    async def test_cli_rejects_unsafe_http_transports(self):
+    async def test_cli_preserves_local_sse_and_rejects_unsafe_http_transports(self):
         runner = CliRunner()
         with patch("app.main.REMOTE_MODE", False), \
              patch("app.main.uvicorn.run") as uvicorn_run, \
              patch("app.main.app.run") as app_run:
             http_result = runner.invoke(main, ["--transport", "streamable-http"])
-            sse_result = runner.invoke(main, ["--transport", "sse"])
+            local_sse_result = runner.invoke(main, ["--transport", "sse"])
 
         self.assertNotEqual(http_result.exit_code, 0)
         self.assertIn("MCP_REMOTE_MODE=true is required", http_result.output)
-        self.assertNotEqual(sse_result.exit_code, 0)
-        self.assertIn("Invalid value for '--transport'", sse_result.output)
+        uvicorn_run.assert_not_called()
+        app_run.assert_called_once_with(transport="sse")
+        self.assertEqual(local_sse_result.exit_code, 0)
+
+        with patch("app.main.REMOTE_MODE", True), \
+             patch("app.main.uvicorn.run") as uvicorn_run, \
+             patch("app.main.app.run") as app_run:
+            remote_sse_result = runner.invoke(main, ["--transport", "sse"])
+
+        self.assertNotEqual(remote_sse_result.exit_code, 0)
+        self.assertIn("SSE is not supported in remote mode", remote_sse_result.output)
         uvicorn_run.assert_not_called()
         app_run.assert_not_called()
 
