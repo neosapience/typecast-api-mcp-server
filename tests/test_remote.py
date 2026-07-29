@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.main import main
 from app.server import (
     ApiKeyMiddleware,
     _api_headers,
@@ -14,11 +15,27 @@ from app.server import (
     create_http_app,
     download_audio,
 )
+from click.testing import CliRunner
 from mcp.server.fastmcp.exceptions import ToolError
 from starlette.requests import Request
 
 
 class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cli_rejects_unsafe_http_transports(self):
+        runner = CliRunner()
+        with patch("app.main.REMOTE_MODE", False), \
+             patch("app.main.uvicorn.run") as uvicorn_run, \
+             patch("app.main.app.run") as app_run:
+            http_result = runner.invoke(main, ["--transport", "streamable-http"])
+            sse_result = runner.invoke(main, ["--transport", "sse"])
+
+        self.assertNotEqual(http_result.exit_code, 0)
+        self.assertIn("MCP_REMOTE_MODE=true is required", http_result.output)
+        self.assertNotEqual(sse_result.exit_code, 0)
+        self.assertIn("Invalid value for '--transport'", sse_result.output)
+        uvicorn_run.assert_not_called()
+        app_run.assert_not_called()
+
     async def test_anonymous_clients_only_see_search(self):
         with patch("app.server.REMOTE_MODE", True):
             self.assertEqual(
