@@ -23,6 +23,7 @@ This project implements a Model [Context Protocol server](https://modelcontextpr
 | Feature                          | Status |
 | -------------------------------- | ------ |
 | **Voice Management**             |        |
+| Search Documentation             | ✅     |
 | Get Voices (V2 API)              | ✅     |
 | Get Voices `use_cases` filter    | ✅     |
 | Get Voice (V2 API)               | ✅     |
@@ -73,6 +74,31 @@ call `get_voice` for each returned ID or `get_voices` for a broader filtered
 list before using the ID in TTS.
 
 ## Setup
+
+### Hosted Server
+
+The hosted Streamable HTTP endpoint is:
+
+```text
+https://typecast-api-docs-web-production.up.railway.app/mcp
+```
+
+Without authentication, the server exposes only `search_documentation`. Send a
+Typecast API key on every MCP request to unlock the Typecast API tools:
+
+```text
+X-API-KEY: YOUR_TYPECAST_API_KEY
+```
+
+`Authorization: Bearer YOUR_TYPECAST_API_KEY` is also supported. The hosted
+server does not store the key. Generated audio is returned as a private,
+unguessable download URL that expires after one hour. `play_audio` remains a
+local-only tool because a hosted server cannot play sound on the MCP client's
+device.
+
+On the hosted server, `clone_voice` accepts only `audio_base64` together with
+an `audio_filename` ending in `.wav` or `.mp3`. `audio_file_path` is available
+only when this MCP server runs locally.
 
 ### Environment Variables
 

@@ -2,24 +2,80 @@ import base64
 import mimetypes
 import os
 import re
+import secrets
+import time
+from contextvars import ContextVar
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode
 
+import anyio
 import httpx
-import sounddevice as sd
-import soundfile as sf
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field
+from starlette.requests import Request
+from starlette.responses import FileResponse, JSONResponse
 
 from app.knowledge import TYPECAST_API_KNOWLEDGE
 
 API_HOST = os.environ.get("TYPECAST_API_HOST", "https://api.typecast.ai")
 API_KEY = os.environ.get("TYPECAST_API_KEY")
 OUTPUT_DIR = Path(os.environ.get("TYPECAST_OUTPUT_DIR", os.path.expanduser("~/Downloads/typecast_output")))
-HTTP_HEADERS = { "X-API-KEY": API_KEY }
+DOCS_SERVICE_URL = os.environ.get("DOCS_SERVICE_URL", "https://typecast.ai/docs").rstrip("/")
+PUBLIC_FILE_URL = os.environ.get("PUBLIC_FILE_URL", "https://typecast.ai/docs/mcp/files").rstrip("/")
+REMOTE_MODE = os.environ.get("MCP_REMOTE_MODE", "").lower() in {"1", "true", "yes"}
+REMOTE_FILE_TTL_SECONDS = int(os.environ.get("MCP_FILE_TTL_SECONDS", "3600"))
 QUICK_CLONING_MAX_FILE_SIZE = 25 * 1024 * 1024
+PUBLIC_TOOLS = {"search_documentation"}
+_request_api_key: ContextVar[str | None] = ContextVar("request_api_key", default=None)
+
+
+def _api_headers() -> dict[str, str]:
+    api_key = _request_api_key.get() or (None if REMOTE_MODE else API_KEY)
+    if not api_key:
+        raise ToolError("Authentication required. Send your Typecast API key as X-API-KEY or Bearer token.")
+    return {"X-API-KEY": api_key}
+
+
+class TypecastMCP(FastMCP):
+    async def list_tools(self):
+        tools = await super().list_tools()
+        if not REMOTE_MODE:
+            return tools
+        if not _request_api_key.get():
+            return [tool for tool in tools if tool.name in PUBLIC_TOOLS]
+        return [tool for tool in tools if tool.name != "play_audio"]
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]):
+        if REMOTE_MODE and name not in PUBLIC_TOOLS and not _request_api_key.get():
+            raise ToolError("Authentication required. Send your Typecast API key as X-API-KEY or Bearer token.")
+        if REMOTE_MODE and name == "play_audio":
+            raise ToolError("play_audio is available only when the MCP server runs on your local computer.")
+        return await super().call_tool(name, arguments)
+
+
+class ApiKeyMiddleware:
+    def __init__(self, asgi_app):
+        self.asgi_app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        api_key = None
+        if scope["type"] == "http":
+            headers = {name.lower(): value for name, value in scope.get("headers", [])}
+            api_key = headers.get(b"x-api-key")
+            authorization = headers.get(b"authorization", b"")
+            if not api_key and authorization.lower().startswith(b"bearer "):
+                api_key = authorization[7:]
+            if api_key:
+                api_key = api_key.decode("utf-8", errors="ignore")[:512]
+        token = _request_api_key.set(api_key)
+        try:
+            await self.asgi_app(scope, receive, send)
+        finally:
+            _request_api_key.reset(token)
 
 
 def _sanitize_for_filename(s: str) -> str:
@@ -58,12 +114,111 @@ def _validate_quick_clone_audio_path(audio_file_path: str) -> tuple[Path, str, i
 
     return audio_path, content_type, file_size
 
-app = FastMCP(
+
+def _quick_clone_audio(
+    audio_file_path: str | None,
+    audio_base64: str | None,
+    audio_filename: str,
+) -> tuple[str, bytes, str, int]:
+    if audio_base64:
+        try:
+            content = base64.b64decode(audio_base64, validate=True)
+        except ValueError as error:
+            raise ValueError("audio_base64 must contain valid base64 data") from error
+        if len(content) > QUICK_CLONING_MAX_FILE_SIZE:
+            raise ValueError("Audio file exceeds the 25 MB quick cloning limit.")
+        suffix = Path(audio_filename).suffix.lower()
+        if suffix not in {".wav", ".mp3"}:
+            raise ValueError("audio_filename must end in .wav or .mp3")
+        return Path(audio_filename).name, content, "audio/wav" if suffix == ".wav" else "audio/mpeg", len(content)
+    if not audio_file_path:
+        raise ValueError("Provide audio_file_path locally or audio_base64 when using the remote server.")
+    if REMOTE_MODE:
+        raise ValueError("audio_file_path is not supported remotely; send audio_base64 and audio_filename.")
+    audio_path, content_type, file_size = _validate_quick_clone_audio_path(audio_file_path)
+    return audio_path.name, audio_path.read_bytes(), content_type, file_size
+
+
+def _cleanup_expired_files() -> None:
+    now = time.time()
+    for existing in OUTPUT_DIR.glob("*"):
+        if existing.is_file() and now - existing.stat().st_mtime > REMOTE_FILE_TTL_SECONDS:
+            existing.unlink(missing_ok=True)
+
+
+async def _new_output_path(filename: str, audio_format: str) -> Path:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not REMOTE_MODE:
+        return OUTPUT_DIR / filename
+    await anyio.to_thread.run_sync(_cleanup_expired_files)
+    return OUTPUT_DIR / f"{secrets.token_urlsafe(32)}.{audio_format}"
+
+
+def _audio_fields(output_path: Path) -> dict:
+    if not REMOTE_MODE:
+        return {"audio_path": str(output_path)}
+    return {
+        "audio_url": f"{PUBLIC_FILE_URL}/{output_path.name}",
+        "expires_in_seconds": REMOTE_FILE_TTL_SECONDS,
+    }
+
+
+def _audio_result(output_path: Path) -> str | dict:
+    fields = _audio_fields(output_path)
+    return fields if REMOTE_MODE else fields["audio_path"]
+
+app = TypecastMCP(
     "typecast-api-mcp-server",
     instructions=TYPECAST_API_KNOWLEDGE,
     host="0.0.0.0",
     port=8000,
+    stateless_http=True,
 )
+
+
+def create_http_app():
+    if not REMOTE_MODE:
+        raise RuntimeError("MCP_REMOTE_MODE=true is required for Streamable HTTP")
+    return ApiKeyMiddleware(app.streamable_http_app())
+
+
+@app.custom_route("/health", methods=["GET"])
+async def health(_request: Request):
+    return JSONResponse({"status": "ok"})
+
+
+@app.custom_route("/files/{filename}", methods=["GET"])
+async def download_audio(request: Request):
+    filename = request.path_params["filename"]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,64}\.(wav|mp3)", filename):
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    file_path = OUTPUT_DIR / filename
+    if not file_path.is_file() or time.time() - file_path.stat().st_mtime > REMOTE_FILE_TTL_SECONDS:
+        file_path.unlink(missing_ok=True)
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    return FileResponse(
+        file_path,
+        filename=f"typecast-audio{file_path.suffix}",
+        media_type="audio/wav" if file_path.suffix == ".wav" else "audio/mpeg",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@app.tool("search_documentation", "Search the Typecast API documentation without authentication")
+async def search_documentation(query: str, limit: int = 5) -> list[dict]:
+    if not query.strip() or len(query) > 500:
+        raise ValueError("query must be between 1 and 500 characters")
+    if limit < 1 or limit > 10:
+        raise ValueError("limit must be between 1 and 10")
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(
+            f"{DOCS_SERVICE_URL}/__mcp/search",
+            params={"q": query, "limit": limit},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        results = payload.get("results", []) if isinstance(payload, dict) else []
+        return results if isinstance(results, list) else []
 
 
 class TTSModel(str, Enum):
@@ -212,7 +367,7 @@ async def get_voices(
         url = f"{url}?{urlencode(params)}"
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=HTTP_HEADERS)
+        response = await client.get(url, headers=_api_headers())
         if response.status_code != 200:
             raise Exception(f"Failed to get voices: {response.status_code}")
         return response.json()
@@ -243,7 +398,7 @@ async def recommend_voices(query: str, count: int = 5) -> list[dict]:
     url = f"{API_HOST}/v1/voices/recommendations?{urlencode({'query': query, 'count': count})}"
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=HTTP_HEADERS)
+        response = await client.get(url, headers=_api_headers())
         if response.status_code != 200:
             raise Exception(f"Failed to recommend voices: {response.status_code}")
         return [RecommendedVoice(**voice).model_dump() for voice in response.json()]
@@ -262,7 +417,7 @@ async def get_voice(voice_id: str) -> dict:
     url = f"{API_HOST}/v2/voices/{voice_id}"
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=HTTP_HEADERS)
+        response = await client.get(url, headers=_api_headers())
         if response.status_code != 200:
             raise Exception(f"Failed to get voice: {response.status_code}")
         return response.json()
@@ -271,8 +426,10 @@ async def get_voice(voice_id: str) -> dict:
 @app.tool("clone_voice", "Create a quick-cloned custom voice from a local WAV or MP3 audio sample")
 async def clone_voice(
     name: str,
-    audio_file_path: str,
+    audio_file_path: str | None = None,
     model: str = TTSModel.SSFM_V30.value,
+    audio_base64: str | None = None,
+    audio_filename: str = "voice.wav",
 ) -> dict:
     """Create a quick-cloned custom voice.
 
@@ -285,6 +442,8 @@ async def clone_voice(
         name: Display name for the cloned voice. Must be 1-30 characters.
         audio_file_path: Local WAV or MP3 sample path. Maximum file size is 25 MB.
         model: Voice cloning model. Default: ssfm-v30.
+        audio_base64: Base64-encoded WAV or MP3 sample for a remote MCP server.
+        audio_filename: Filename with .wav or .mp3 extension for audio_base64.
 
     Returns:
         Dict returned by the Typecast API plus normalized handoff fields:
@@ -295,24 +454,21 @@ async def clone_voice(
         raise ValueError(f"Voice name must be 1-30 characters; got {char_count}.")
 
     model_enum = TTSModel(model)
-    audio_path, content_type, file_size = _validate_quick_clone_audio_path(audio_file_path)
+    filename, audio_content, content_type, file_size = _quick_clone_audio(
+        audio_file_path,
+        audio_base64,
+        audio_filename,
+    )
 
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, write=120.0, read=120.0, pool=10.0)
     ) as client:
-        with audio_path.open("rb") as audio_file:
-            response = await client.post(
-                f"{API_HOST}/v1/voices/clone",
-                headers=HTTP_HEADERS,
-                data={"name": name, "model": model_enum.value},
-                files={
-                    "file": (
-                        audio_path.name,
-                        audio_file,
-                        content_type,
-                    )
-                },
-            )
+        response = await client.post(
+            f"{API_HOST}/v1/voices/clone",
+            headers=_api_headers(),
+            data={"name": name, "model": model_enum.value},
+            files={"file": (filename, audio_content, content_type)},
+        )
 
     if response.status_code not in {200, 201}:
         raise Exception(f"Failed to clone voice: {response.status_code}, {response.text}")
@@ -359,7 +515,7 @@ async def delete_cloned_voice(voice_id: str) -> dict:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, write=10.0, read=30.0, pool=10.0)
     ) as client:
-        response = await client.delete(f"{API_HOST}/v1/voices/{voice_id}", headers=HTTP_HEADERS)
+        response = await client.delete(f"{API_HOST}/v1/voices/{voice_id}", headers=_api_headers())
 
     if response.status_code not in {200, 204}:
         raise Exception(f"Failed to delete cloned voice: {response.status_code}, {response.text}")
@@ -382,7 +538,7 @@ async def text_to_speech(
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
     target_lufs: float | None = None,
-) -> str:
+) -> str | dict:
     """Convert text to speech using the specified voice and parameters
 
     Args:
@@ -402,13 +558,11 @@ async def text_to_speech(
             Mutually exclusive with a custom volume value on this non-streaming endpoint.
 
     Returns:
-        Path to the saved audio file
+        Local mode: path to the saved audio file.
+        Remote mode: dict with audio_url and expires_in_seconds.
     """
     if target_lufs is not None and not (-70.0 <= target_lufs <= 0.0):
         raise ValueError(f"target_lufs must be between -70.0 and 0.0, got {target_lufs}")
-
-    if not OUTPUT_DIR.exists():
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Build prompt based on model and emotion_type
     model_enum = TTSModel(model)
@@ -450,17 +604,20 @@ async def text_to_speech(
         response = await client.post(
             f"{API_HOST}/v1/text-to-speech",
             json=request.model_dump(exclude_none=True),
-            headers=HTTP_HEADERS,
+            headers=_api_headers(),
         )
         if response.status_code != 200:
             raise Exception(f"Failed to generate speech: {response.status_code}, {response.text}")
 
         safe_text = _sanitize_for_filename(re.sub(r'\s+', '', text[:10]))
         safe_voice = _sanitize_for_filename(voice_id)
-        output_path = OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}.{audio_format}"
+        output_path = await _new_output_path(
+            f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}.{audio_format}",
+            audio_format,
+        )
         output_path.write_bytes(response.content)
 
-        return str(output_path)
+        return _audio_result(output_path)
 
 
 @app.tool("play_audio", "Play the generated audio file")
@@ -474,6 +631,9 @@ async def play_audio(file_path: str) -> str:
         Status message
     """
     try:
+        import sounddevice as sd
+        import soundfile as sf
+
         data, samplerate = sf.read(file_path)
 
         # Get the current output device
@@ -505,7 +665,7 @@ async def text_to_speech_stream(
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
     target_lufs: float | None = None,
-) -> str:
+) -> str | dict:
     """Convert text to speech via the streaming endpoint and save the result.
 
     Calls POST /v1/text-to-speech/stream which returns chunked audio data
@@ -529,11 +689,9 @@ async def text_to_speech_stream(
         target_lufs: Optional absolute loudness normalization target in LUFS (-70.0 ~ 0.0)
 
     Returns:
-        Path to the saved audio file
+        Local mode: path to the saved audio file.
+        Remote mode: dict with audio_url and expires_in_seconds.
     """
-    if not OUTPUT_DIR.exists():
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     model_enum = TTSModel(model)
     if model_enum == TTSModel.SSFM_V30:
         if emotion_type == "smart":
@@ -572,9 +730,9 @@ async def text_to_speech_stream(
 
     safe_text = _sanitize_for_filename(re.sub(r"\s+", "", text[:10]))
     safe_voice = _sanitize_for_filename(voice_id)
-    output_path = (
-        OUTPUT_DIR
-        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_stream.{audio_format}"
+    output_path = await _new_output_path(
+        f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_stream.{audio_format}",
+        audio_format,
     )
 
     async with httpx.AsyncClient(
@@ -584,7 +742,7 @@ async def text_to_speech_stream(
             "POST",
             f"{API_HOST}/v1/text-to-speech/stream",
             json=request_payload,
-            headers=HTTP_HEADERS,
+            headers=_api_headers(),
         ) as response:
             if response.status_code != 200:
                 body = await response.aread()
@@ -597,7 +755,7 @@ async def text_to_speech_stream(
                     if chunk:
                         f.write(chunk)
 
-    return str(output_path)
+    return _audio_result(output_path)
 
 
 @app.tool(
@@ -623,7 +781,7 @@ async def get_my_subscription() -> dict:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, write=10.0, read=30.0, pool=10.0)
     ) as client:
-        response = await client.get(url, headers=HTTP_HEADERS)
+        response = await client.get(url, headers=_api_headers())
         if response.status_code != 200:
             raise Exception(
                 f"Failed to get subscription: {response.status_code}, {response.text}"
@@ -674,14 +832,12 @@ async def text_to_speech_with_timestamps(
 
     Returns:
         Dict:
-            - 'audio_path': str — path to the saved audio file
+            - local mode: 'audio_path' — path to the saved audio file
+            - remote mode: 'audio_url' and 'expires_in_seconds'
             - 'words': list | None — word-level alignment when available
             - 'characters': list | None — character-level alignment when available
             - 'raw': dict — full server response with the audio bytes stripped
     """
-    if not OUTPUT_DIR.exists():
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     model_enum = TTSModel(model)
     if model_enum == TTSModel.SSFM_V30:
         if emotion_type == "smart":
@@ -736,7 +892,7 @@ async def text_to_speech_with_timestamps(
         response = await client.post(
             f"{API_HOST}/v1/text-to-speech/with-timestamps",
             json=request_payload,
-            headers=HTTP_HEADERS,
+            headers=_api_headers(),
         )
         if response.status_code != 200:
             raise Exception(
@@ -750,9 +906,9 @@ async def text_to_speech_with_timestamps(
 
     safe_text = _sanitize_for_filename(re.sub(r"\s+", "", text[:10]))
     safe_voice = _sanitize_for_filename(voice_id)
-    audio_path = (
-        OUTPUT_DIR
-        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_ts.{audio_format}"
+    audio_path = await _new_output_path(
+        f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{safe_voice}_{safe_text}_ts.{audio_format}",
+        audio_format,
     )
     audio_path.write_bytes(audio_bytes)
 
@@ -765,7 +921,7 @@ async def text_to_speech_with_timestamps(
     raw = {k: v for k, v in payload.items() if k != "audio"}
 
     return {
-        "audio_path": str(audio_path),
+        **_audio_fields(audio_path),
         "words": words,
         "characters": characters,
         "raw": raw,
