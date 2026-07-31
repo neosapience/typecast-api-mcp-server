@@ -529,9 +529,20 @@ def lambda_handler(event, context):
 | 402 | Payment Required | Insufficient credits | Upgrade plan or add payment |
 | 403 | Forbidden | No permission or dormant account | ① If using Starter API key, migrate to new API ② If dormant account, log in to website to activate |
 | 404 | Not Found | voice_id does not exist | Check valid voice list with /v1/voices |
-| 422 | Validation Error | Parameter value out of range | Check ranges: emotion_intensity (0-2), volume (0-200), tempo (0.5-2) |
+| 422 | Validation Error | Parameter value out of range or text cannot be synthesized | Check parameter ranges. For `TEXT_NOT_SYNTHESIZABLE`, correct the text before retrying |
 | 429 | Too Many Requests | Concurrent request limit exceeded | Check plan limits (Free:2, Lite:5, Plus:15) |
-| 500 | Internal Server Error | Server error | Retry later, contact support if problem persists |
+| 500 | Internal Server Error | Unexpected server error | Retry later, contact support if problem persists |
+
+For unsupported character or symbol sequences and language mismatches, TTS endpoints return:
+
+```json
+{
+  "error_code": "TEXT_NOT_SYNTHESIZABLE",
+  "message": "The input text contains characters or symbols that cannot be synthesized into speech. Please check your input text."
+}
+```
+
+This 422 response is not retryable without changing the input text. For streaming TTS, the API can return this status only before the streaming response begins; once streaming has started, the HTTP status cannot change.
 
 ### 403 Error Checklist
 
