@@ -6,7 +6,7 @@ authors = [{ name = "Hyunseung Lee", email = "hyunseung@neosapience.com" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.28.1,<2",
+    "mcp>=1.29.0,<2",
     "httpx",
     "sounddevice",
     "soundfile",
