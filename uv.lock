@@ -1278,7 +1278,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "mcp", extras = ["cli"], specifier = ">=1.28.1,<2" }]
+dev = [{ name = "mcp", extras = ["cli"], specifier = ">=1.29.0,<2" }]
 
 [[package]]
 name = "typer"
