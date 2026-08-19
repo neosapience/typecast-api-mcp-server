@@ -1,12 +1,14 @@
 import base64
 import mimetypes
 import os
+import platform
 import re
 import secrets
 import time
 from contextvars import ContextVar
 from datetime import datetime
 from enum import Enum
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -31,13 +33,46 @@ REMOTE_FILE_TTL_SECONDS = int(os.environ.get("MCP_FILE_TTL_SECONDS", "3600"))
 QUICK_CLONING_MAX_FILE_SIZE = 25 * 1024 * 1024
 PUBLIC_TOOLS = {"search_documentation"}
 _request_api_key: ContextVar[str | None] = ContextVar("request_api_key", default=None)
+_request_attribution: ContextVar[tuple[str | None, str | None] | None] = ContextVar(
+    "request_attribution", default=None
+)
+MCP_VERSION = version("typecast-api-mcp-server")
+_ATTRIBUTION_TOKEN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+
+
+def _user_agent() -> str:
+    deployment = "hosted" if REMOTE_MODE else "self-hosted"
+    user_agent = (
+        f"typecast-mcp/{MCP_VERSION} Python/{platform.python_version()} "
+        f"httpx/{httpx.__version__} (deployment={deployment})"
+    )
+
+    request_attribution = _request_attribution.get()
+    if request_attribution is None:
+        source = os.environ.get("TYPECAST_INTEGRATION_SOURCE") or None
+        generated_by = os.environ.get("TYPECAST_GENERATED_BY") or None
+    else:
+        source, generated_by = request_attribution
+
+    if source is None and generated_by is None:
+        return user_agent
+    if source is None or generated_by is None:
+        raise ToolError("TYPECAST_INTEGRATION_SOURCE and TYPECAST_GENERATED_BY must be set together.")
+    if source not in {"llms", "skill"}:
+        raise ToolError("Typecast integration source must be 'llms' or 'skill'.")
+    if not _ATTRIBUTION_TOKEN.fullmatch(generated_by):
+        raise ToolError("Typecast generated_by must be a lowercase ASCII token of 1-32 characters.")
+    return (
+        f"{user_agent} typecast-integration/1 "
+        f"(source={source}; generated_by={generated_by})"
+    )
 
 
 def _api_headers() -> dict[str, str]:
     api_key = _request_api_key.get() or (None if REMOTE_MODE else API_KEY)
     if not api_key:
         raise ToolError("Authentication required. Send your Typecast API key as X-API-KEY or Bearer token.")
-    return {"X-API-KEY": api_key}
+    return {"X-API-KEY": api_key, "User-Agent": _user_agent()}
 
 
 class TypecastMCP(FastMCP):
@@ -63,6 +98,7 @@ class ApiKeyMiddleware:
 
     async def __call__(self, scope, receive, send):
         api_key = None
+        attribution = None
         if scope["type"] == "http":
             headers = {name.lower(): value for name, value in scope.get("headers", [])}
             api_key = headers.get(b"x-api-key")
@@ -71,11 +107,20 @@ class ApiKeyMiddleware:
                 api_key = authorization[7:]
             if api_key:
                 api_key = api_key.decode("utf-8", errors="ignore")[:512]
-        token = _request_api_key.set(api_key)
+            source = headers.get(b"x-typecast-integration-source")
+            generated_by = headers.get(b"x-typecast-generated-by")
+            if source is not None or generated_by is not None:
+                attribution = (
+                    source[:128].decode("ascii", errors="replace") if source else None,
+                    generated_by[:128].decode("ascii", errors="replace") if generated_by else None,
+                )
+        api_key_token = _request_api_key.set(api_key)
+        attribution_token = _request_attribution.set(attribution)
         try:
             await self.asgi_app(scope, receive, send)
         finally:
-            _request_api_key.reset(token)
+            _request_attribution.reset(attribution_token)
+            _request_api_key.reset(api_key_token)
 
 
 def _sanitize_for_filename(s: str) -> str:
@@ -214,6 +259,7 @@ async def search_documentation(query: str, limit: int = 5) -> list[dict]:
         response = await client.get(
             f"{DOCS_SERVICE_URL}/__mcp/search",
             params={"q": query, "limit": limit},
+            headers={"User-Agent": _user_agent()},
         )
         response.raise_for_status()
         payload = response.json()

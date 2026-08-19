@@ -96,6 +96,19 @@ unguessable download URL that expires after one hour. `play_audio` remains a
 local-only tool because a hosted server cannot play sound on the MCP client's
 device.
 
+To preserve how Typecast integration code was created, hosted clients may send
+both attribution headers together:
+
+```text
+X-Typecast-Integration-Source: skill
+X-Typecast-Generated-By: codex
+```
+
+`X-Typecast-Integration-Source` accepts `llms` or `skill`.
+`X-Typecast-Generated-By` accepts a lowercase ASCII token up to 32 characters.
+The server keeps its own `typecast-mcp/<version>` User-Agent and appends this
+attribution instead of replacing it.
+
 On the hosted server, `clone_voice` accepts only `audio_base64` together with
 an `audio_filename` ending in `.wav` or `.mp3`. `audio_file_path` is available
 only when this MCP server runs locally.
@@ -107,6 +120,8 @@ Set the following environment variables:
 ```bash
 TYPECAST_API_KEY=<your-api-key>
 TYPECAST_OUTPUT_DIR=<your-output-directory> # default: ~/Downloads/typecast_output
+TYPECAST_INTEGRATION_SOURCE=<llms-or-skill> # optional; set both attribution variables
+TYPECAST_GENERATED_BY=<coding-agent-id>     # optional; e.g. codex or claude-code
 ```
 
 ### Usage with Claude Desktop / Cursor
