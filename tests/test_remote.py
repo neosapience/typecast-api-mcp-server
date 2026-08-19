@@ -11,6 +11,8 @@ from app.server import (
     _api_headers,
     _quick_clone_audio,
     _request_api_key,
+    _request_attribution,
+    _user_agent,
     app,
     create_http_app,
     download_audio,
@@ -84,18 +86,50 @@ class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
             seen.append(_api_headers())
 
         middleware = ApiKeyMiddleware(downstream)
-        with patch("app.server.REMOTE_MODE", True):
+        with patch("app.server.REMOTE_MODE", True), \
+             patch("app.server.MCP_VERSION", "0.2.1"), \
+             patch("app.server.platform.python_version", return_value="3.12.0"), \
+             patch("app.server.httpx.__version__", "0.28.1"):
             for headers in [
                 [(b"x-api-key", b"tc-request-key")],
                 [(b"authorization", b"bEaReR tc-bearer-key")],
+                [
+                    (b"x-api-key", b"tc-attributed-key"),
+                    (b"x-typecast-integration-source", b"skill"),
+                    (b"x-typecast-generated-by", b"codex"),
+                ],
             ]:
                 await middleware({"type": "http", "headers": headers}, None, None)
             self.assertEqual(seen, [
-                {"X-API-KEY": "tc-request-key"},
-                {"X-API-KEY": "tc-bearer-key"},
+                {
+                    "X-API-KEY": "tc-request-key",
+                    "User-Agent": "typecast-mcp/0.2.1 Python/3.12.0 httpx/0.28.1 (deployment=hosted)",
+                },
+                {
+                    "X-API-KEY": "tc-bearer-key",
+                    "User-Agent": "typecast-mcp/0.2.1 Python/3.12.0 httpx/0.28.1 (deployment=hosted)",
+                },
+                {
+                    "X-API-KEY": "tc-attributed-key",
+                    "User-Agent": (
+                        "typecast-mcp/0.2.1 Python/3.12.0 httpx/0.28.1 (deployment=hosted) "
+                        "typecast-integration/1 (source=skill; generated_by=codex)"
+                    ),
+                },
             ])
+            self.assertIsNone(_request_attribution.get())
             with self.assertRaises(ToolError):
                 _api_headers()
+
+    async def test_user_agent_rejects_invalid_attribution(self):
+        with patch("app.server.REMOTE_MODE", False):
+            for attribution in [("skill", None), ("other", "codex"), ("skill", "Codex")]:
+                token = _request_attribution.set(attribution)
+                try:
+                    with self.assertRaises(ToolError):
+                        _user_agent()
+                finally:
+                    _request_attribution.reset(token)
 
     async def test_expired_audio_is_removed(self):
         filename = f"{'a' * 32}.wav"
