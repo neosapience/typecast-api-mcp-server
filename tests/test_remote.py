@@ -87,7 +87,7 @@ class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
 
         middleware = ApiKeyMiddleware(downstream)
         with patch("app.server.REMOTE_MODE", True), \
-             patch("app.server.MCP_VERSION", "0.2.1"), \
+             patch("app.server.MCP_VERSION", "0.2.2"), \
              patch("app.server.platform.python_version", return_value="3.12.0"), \
              patch("app.server.httpx.__version__", "0.28.1"):
             for headers in [
@@ -95,7 +95,7 @@ class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
                 [(b"authorization", b"bEaReR tc-bearer-key")],
                 [
                     (b"x-api-key", b"tc-attributed-key"),
-                    (b"x-typecast-integration-source", b"skill"),
+                    (b"x-typecast-integration-source", b"api-docs"),
                     (b"x-typecast-generated-by", b"codex"),
                 ],
             ]:
@@ -103,17 +103,17 @@ class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(seen, [
                 {
                     "X-API-KEY": "tc-request-key",
-                    "User-Agent": "typecast-mcp/0.2.1 Python/3.12.0 httpx/0.28.1 (deployment=hosted)",
+                    "User-Agent": "typecast-mcp/0.2.2 Python/3.12.0 httpx/0.28.1 (deployment=hosted)",
                 },
                 {
                     "X-API-KEY": "tc-bearer-key",
-                    "User-Agent": "typecast-mcp/0.2.1 Python/3.12.0 httpx/0.28.1 (deployment=hosted)",
+                    "User-Agent": "typecast-mcp/0.2.2 Python/3.12.0 httpx/0.28.1 (deployment=hosted)",
                 },
                 {
                     "X-API-KEY": "tc-attributed-key",
                     "User-Agent": (
-                        "typecast-mcp/0.2.1 Python/3.12.0 httpx/0.28.1 (deployment=hosted) "
-                        "typecast-integration/1 (source=skill; generated_by=codex)"
+                        "typecast-mcp/0.2.2 Python/3.12.0 httpx/0.28.1 (deployment=hosted) "
+                        "typecast-integration/1 (source=api-docs; generated_by=codex)"
                     ),
                 },
             ])
@@ -121,8 +121,14 @@ class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ToolError):
                 _api_headers()
 
-    async def test_user_agent_rejects_invalid_attribution(self):
+    async def test_user_agent_validates_attribution(self):
         with patch("app.server.REMOTE_MODE", False):
+            for source in ("api-page", "api-docs"):
+                token = _request_attribution.set((source, "codex"))
+                try:
+                    self.assertIn(f"source={source}", _user_agent())
+                finally:
+                    _request_attribution.reset(token)
             for attribution in [("skill", None), ("other", "codex"), ("skill", "Codex")]:
                 token = _request_attribution.set(attribution)
                 try:

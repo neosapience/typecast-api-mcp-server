@@ -100,11 +100,12 @@ To preserve how Typecast integration code was created, hosted clients may send
 both attribution headers together:
 
 ```text
-X-Typecast-Integration-Source: skill
+X-Typecast-Integration-Source: api-docs
 X-Typecast-Generated-By: codex
 ```
 
-`X-Typecast-Integration-Source` accepts `llms` or `skill`.
+Use `api-page` for API page onboarding and `api-docs` for API documentation
+onboarding. The legacy `llms` and `skill` values remain accepted.
 `X-Typecast-Generated-By` accepts a lowercase ASCII token up to 32 characters.
 The server keeps its own `typecast-mcp/<version>` User-Agent and appends this
 attribution instead of replacing it.
@@ -120,8 +121,8 @@ Set the following environment variables:
 ```bash
 TYPECAST_API_KEY=<your-api-key>
 TYPECAST_OUTPUT_DIR=<your-output-directory> # default: ~/Downloads/typecast_output
-TYPECAST_INTEGRATION_SOURCE=<llms-or-skill> # optional; set both attribution variables
-TYPECAST_GENERATED_BY=<coding-agent-id>     # optional; e.g. codex or claude-code
+TYPECAST_INTEGRATION_SOURCE=<llms|skill|api-page|api-docs> # optional; set both attribution variables
+TYPECAST_GENERATED_BY=<coding-agent-id>                     # optional; e.g. codex or claude-code
 ```
 
 ### Usage with Claude Desktop / Cursor
