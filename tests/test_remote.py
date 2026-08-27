@@ -87,26 +87,26 @@ class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
              patch("app.server.API_KEY", "key"), \
              patch("app.server.httpx.AsyncClient", Client):
             self.assertEqual((await get_voices())[0]["voice_name"]["kor"], "보이스")
-            self.assertEqual((await get_voice("tc_voice"))["voice_type"], "original")
+            self.assertEqual((await get_voice("tc_voice/part?"))["voice_type"], "original")
             self.assertEqual((await clone_voice("Custom", audio_base64="AA=="))["status"], "completed")
             self.assertEqual(
                 (await create_professional_voice("Custom", "kor", audio_base64="AA=="))["status"],
                 "completed",
             )
             self.assertEqual((await get_custom_voices())[0]["source"], "instant")
-            self.assertEqual((await get_custom_voice("uc_voice"))["voice_id"], "uc_voice")
-            self.assertTrue((await delete_cloned_voice("uc_voice"))["success"])
+            self.assertEqual((await get_custom_voice("uc_voice/part?"))["voice_id"], "uc_voice")
+            self.assertTrue((await delete_cloned_voice("uc_voice/part?"))["success"])
 
         self.assertEqual(
             [request[1] for request in Client.requests],
             [
                 "https://api.example.test/v3/voices",
-                "https://api.example.test/v3/voices/tc_voice",
+                "https://api.example.test/v3/voices/tc_voice%2Fpart%3F",
                 "https://api.example.test/v1/custom-voices/instant-clone",
                 "https://api.example.test/v1/custom-voices/professional-clone",
                 "https://api.example.test/v1/custom-voices",
-                "https://api.example.test/v1/custom-voices/uc_voice",
-                "https://api.example.test/v1/custom-voices/uc_voice",
+                "https://api.example.test/v1/custom-voices/uc_voice%2Fpart%3F",
+                "https://api.example.test/v1/custom-voices/uc_voice%2Fpart%3F",
             ],
         )
 

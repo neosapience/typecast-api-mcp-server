@@ -11,7 +11,7 @@ from enum import Enum
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import anyio
 import httpx
@@ -484,7 +484,9 @@ async def get_voice(voice_id: str) -> dict:
     Returns:
         Voice information with enhanced metadata including gender, age, use cases, and supported models with emotions.
     """
-    url = f"{API_HOST}/v3/voices/{voice_id}"
+    if not voice_id.strip():
+        raise ValueError("voice_id is required")
+    url = f"{API_HOST}/v3/voices/{quote(voice_id, safe='')}"
 
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=_api_headers())
@@ -623,7 +625,7 @@ async def get_custom_voice(voice_id: str) -> dict:
         raise ValueError("voice_id must start with 'uc_'")
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{API_HOST}/v1/custom-voices/{voice_id}", headers=_api_headers()
+            f"{API_HOST}/v1/custom-voices/{quote(voice_id, safe='')}", headers=_api_headers()
         )
     if response.status_code != 200:
         raise Exception(f"Failed to get custom voice: {response.status_code}")
@@ -646,7 +648,9 @@ async def delete_cloned_voice(voice_id: str) -> dict:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, write=10.0, read=30.0, pool=10.0)
     ) as client:
-        response = await client.delete(f"{API_HOST}/v1/custom-voices/{voice_id}", headers=_api_headers())
+        response = await client.delete(
+            f"{API_HOST}/v1/custom-voices/{quote(voice_id, safe='')}", headers=_api_headers()
+        )
 
     if response.status_code not in {200, 204}:
         raise Exception(f"Failed to delete cloned voice: {response.status_code}, {response.text}")
