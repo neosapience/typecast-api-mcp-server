@@ -14,8 +14,15 @@ from app.server import (
     _request_attribution,
     _user_agent,
     app,
+    clone_voice,
+    create_professional_voice,
     create_http_app,
+    delete_cloned_voice,
     download_audio,
+    get_custom_voice,
+    get_custom_voices,
+    get_voice,
+    get_voices,
 )
 from click.testing import CliRunner
 from mcp.server.fastmcp.exceptions import ToolError
@@ -23,6 +30,86 @@ from starlette.requests import Request
 
 
 class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_v3_voice_and_custom_voice_routes(self):
+        class Response:
+            def __init__(self, status_code, payload):
+                self.status_code = status_code
+                self._payload = payload
+                self.text = ""
+
+            def json(self):
+                return self._payload
+
+        class Client:
+            requests = []
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def get(self, url, **kwargs):
+                self.requests.append(("GET", url, kwargs))
+                if url.endswith("/v3/voices"):
+                    return Response(200, [voice_payload])
+                if "/v3/voices/" in url:
+                    return Response(200, voice_payload)
+                if url.endswith("/v1/custom-voices"):
+                    return Response(200, [custom_payload])
+                return Response(200, custom_payload)
+
+            async def post(self, url, **kwargs):
+                self.requests.append(("POST", url, kwargs))
+                return Response(202 if "professional" in url else 201, custom_payload)
+
+            async def delete(self, url, **kwargs):
+                self.requests.append(("DELETE", url, kwargs))
+                return Response(204, None)
+
+        voice_payload = {
+            "voice_id": "tc_voice",
+            "voice_name": {"eng": "Voice", "kor": "보이스"},
+            "models": [{"version": "ssfm-v30", "emotions": ["normal"]}],
+            "voice_type": "original",
+        }
+        custom_payload = {
+            "voice_id": "uc_voice",
+            "name": "Custom",
+            "model": "ssfm-v30",
+            "source": "instant",
+            "status": "completed",
+        }
+        with patch("app.server.API_HOST", "https://api.example.test"), \
+             patch("app.server.API_KEY", "key"), \
+             patch("app.server.httpx.AsyncClient", Client):
+            self.assertEqual((await get_voices())[0]["voice_name"]["kor"], "보이스")
+            self.assertEqual((await get_voice("tc_voice"))["voice_type"], "original")
+            self.assertEqual((await clone_voice("Custom", audio_base64="AA=="))["status"], "completed")
+            self.assertEqual(
+                (await create_professional_voice("Custom", "kor", audio_base64="AA=="))["status"],
+                "completed",
+            )
+            self.assertEqual((await get_custom_voices())[0]["source"], "instant")
+            self.assertEqual((await get_custom_voice("uc_voice"))["voice_id"], "uc_voice")
+            self.assertTrue((await delete_cloned_voice("uc_voice"))["success"])
+
+        self.assertEqual(
+            [request[1] for request in Client.requests],
+            [
+                "https://api.example.test/v3/voices",
+                "https://api.example.test/v3/voices/tc_voice",
+                "https://api.example.test/v1/custom-voices/instant-clone",
+                "https://api.example.test/v1/custom-voices/professional-clone",
+                "https://api.example.test/v1/custom-voices",
+                "https://api.example.test/v1/custom-voices/uc_voice",
+                "https://api.example.test/v1/custom-voices/uc_voice",
+            ],
+        )
+
     async def test_cli_preserves_local_sse_and_rejects_unsafe_http_transports(self):
         runner = CliRunner()
         with patch("app.main.REMOTE_MODE", False), \

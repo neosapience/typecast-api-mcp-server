@@ -334,34 +334,56 @@ class Output(BaseModel):
 
 
 class GenderEnum(str, Enum):
-    """Gender filter for V2 Voices API."""
+    """Gender filter for V3 Voices API."""
     MALE = "male"
     FEMALE = "female"
 
 
 class AgeEnum(str, Enum):
-    """Age filter for V2 Voices API."""
+    """Age filter for V3 Voices API."""
     CHILD = "child"
-    TEEN = "teen"
+    TEENAGER = "teenager"
     YOUNG_ADULT = "young_adult"
-    MIDDLE_AGED = "middle_aged"
-    SENIOR = "senior"
+    MIDDLE_AGE = "middle_age"
+    ELDER = "elder"
 
 
 class VoiceModel(BaseModel):
-    """Voice model information in V2 API response."""
+    """Voice model information in a V3 API response."""
     version: TTSModel = Field(description="Model version")
     emotions: list[str] = Field(description="List of supported emotions for this model")
 
 
-class VoiceV2(BaseModel):
-    """V2 Voice response with enhanced metadata."""
+class LocalizedVoiceName(BaseModel):
+    """Localized display names returned by the V3 Voice API."""
+
+    eng: str
+    kor: str
+
+
+class VoiceV3(BaseModel):
+    """V3 Voice response with localized names and preview metadata."""
+
     voice_id: str = Field(description="Unique voice identifier")
-    voice_name: str = Field(description="Display name of the voice")
+    voice_name: LocalizedVoiceName = Field(description="Localized display name of the voice")
     models: list[VoiceModel] = Field(description="List of supported models with their emotions")
     gender: GenderEnum | None = Field(default=None, description="Voice gender")
     age: AgeEnum | None = Field(default=None, description="Voice age group")
     use_cases: list[str] | None = Field(default=None, description="Recommended use cases")
+    voice_type: str = Field(description="Voice type: original or custom")
+    preview_url: str | None = Field(default=None, description="Optional preview audio URL")
+
+
+class CustomVoice(BaseModel):
+    """Custom Voice status returned by the Custom Voice API."""
+
+    voice_id: str
+    name: str
+    model: str
+    source: str | None = None
+    status: str | None = None
+    error: str | None = None
+    created_at: str | None = None
 
 
 class RecommendedVoice(BaseModel):
@@ -381,21 +403,21 @@ class TTSRequest(BaseModel):
     seed: int | None = Field(default=None, description="Random seed for consistent generation", ge=0, le=2147483647)
 
 
-@app.tool("get_voices", "Get a list of available voices using V2 API with filtering support")
+@app.tool("get_voices", "Get a list of available voices using V3 API with filtering support")
 async def get_voices(
     model: str | None = None,
     gender: str | None = None,
     age: str | None = None,
     use_cases: str | None = None,
 ) -> dict:
-    """Get a list of available voices for text-to-speech using V2 API
+    """Get a list of available voices for text-to-speech using V3 API.
 
     Args:
         model: Optional filter for specific TTS models (ssfm-v21 or ssfm-v30).
         gender: Optional filter for voice gender (male or female).
-        age: Optional filter for voice age group (child, teen, young_adult, middle_aged, senior).
+        age: Optional filter for voice age group (child, teenager, young_adult, middle_age, elder).
         use_cases: Optional filter for voice use case (e.g. 'audiobook', 'narration', 'documentary').
-            Pass a single use case string supported by the V2 voices endpoint.
+            Pass a single use case string supported by the V3 voices endpoint.
 
     Returns:
         List of available voices with enhanced metadata including gender, age, and use cases.
@@ -410,7 +432,7 @@ async def get_voices(
     if use_cases:
         params["use_cases"] = use_cases
 
-    url = f"{API_HOST}/v2/voices"
+    url = f"{API_HOST}/v3/voices"
     if params:
         url = f"{url}?{urlencode(params)}"
 
@@ -418,7 +440,7 @@ async def get_voices(
         response = await client.get(url, headers=_api_headers())
         if response.status_code != 200:
             raise Exception(f"Failed to get voices: {response.status_code}")
-        return response.json()
+        return [VoiceV3.model_validate(voice).model_dump() for voice in response.json()]
 
 
 @app.tool("recommend_voices", "Recommend Typecast voices from a text description")
@@ -452,9 +474,9 @@ async def recommend_voices(query: str, count: int = 5) -> list[dict]:
         return [RecommendedVoice(**voice).model_dump() for voice in response.json()]
 
 
-@app.tool("get_voice", "Get detailed information for a specific voice by ID using V2 API")
+@app.tool("get_voice", "Get detailed information for a specific voice by ID using V3 API")
 async def get_voice(voice_id: str) -> dict:
-    """Get detailed information for a specific voice by ID using V2 API
+    """Get detailed information for a specific voice by ID using V3 API.
 
     Args:
         voice_id: The voice ID (e.g., 'tc_672c5f5ce59fac2a48faeaee')
@@ -462,13 +484,13 @@ async def get_voice(voice_id: str) -> dict:
     Returns:
         Voice information with enhanced metadata including gender, age, use cases, and supported models with emotions.
     """
-    url = f"{API_HOST}/v2/voices/{voice_id}"
+    url = f"{API_HOST}/v3/voices/{voice_id}"
 
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=_api_headers())
         if response.status_code != 200:
             raise Exception(f"Failed to get voice: {response.status_code}")
-        return response.json()
+        return VoiceV3.model_validate(response.json()).model_dump()
 
 
 @app.tool("clone_voice", "Create a quick-cloned custom voice from a local WAV or MP3 audio sample")
@@ -481,7 +503,7 @@ async def clone_voice(
 ) -> dict:
     """Create a quick-cloned custom voice.
 
-    Calls POST /v1/voices/clone with multipart form data. Use the returned
+    Calls POST /v1/custom-voices/instant-clone with multipart form data. Use the returned
     voice_id with text_to_speech, text_to_speech_stream, or
     text_to_speech_with_timestamps. Delete temporary cloned voices with
     delete_cloned_voice when they are no longer needed.
@@ -512,7 +534,7 @@ async def clone_voice(
         timeout=httpx.Timeout(connect=10.0, write=120.0, read=120.0, pool=10.0)
     ) as client:
         response = await client.post(
-            f"{API_HOST}/v1/voices/clone",
+            f"{API_HOST}/v1/custom-voices/instant-clone",
             headers=_api_headers(),
             data={"name": name, "model": model_enum.value},
             files={"file": (filename, audio_content, content_type)},
@@ -534,17 +556,78 @@ async def clone_voice(
 
     voice_name = result.get("name") or result.get("voice_name") or name
 
-    return {
+    custom_voice = CustomVoice.model_validate({
         **result,
         "voice_id": voice_id,
-        "cloned_voice_id": voice_id,
-        "voice_name": voice_name,
         "name": voice_name,
         "model": result.get("model") or model_enum.value,
+    })
+    return {
+        **custom_voice.model_dump(exclude_none=True),
+        "cloned_voice_id": voice_id,
+        "voice_name": voice_name,
         "file_size": file_size,
         "next_step_voice_id": voice_id,
-        "next_step_model": result.get("model") or model_enum.value,
+        "next_step_model": custom_voice.model,
     }
+
+
+@app.tool("create_professional_voice", "Start asynchronous professional custom voice cloning")
+async def create_professional_voice(
+    name: str,
+    language: str,
+    audio_file_path: str | None = None,
+    model: str = TTSModel.SSFM_V30.value,
+    audio_base64: str | None = None,
+    audio_filename: str = "voice.wav",
+) -> dict:
+    """Start professional cloning and return a Custom Voice in training state.
+
+    Poll ``get_custom_voice`` until its status becomes ``completed`` or
+    ``failed``; professional cloning can take up to two hours.
+    """
+    if not language.strip():
+        raise ValueError("language is required and must be an ISO 639-3 code")
+    model_enum = TTSModel(model)
+    filename, audio_content, content_type, _ = _quick_clone_audio(
+        audio_file_path, audio_base64, audio_filename
+    )
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, write=120.0, read=120.0, pool=10.0)
+    ) as client:
+        response = await client.post(
+            f"{API_HOST}/v1/custom-voices/professional-clone",
+            headers=_api_headers(),
+            data={"name": name, "model": model_enum.value, "language": language.lower()},
+            files=[("files", (filename, audio_content, content_type))],
+        )
+    if response.status_code != 202:
+        raise Exception(f"Failed to start professional clone: {response.status_code}, {response.text}")
+    return CustomVoice.model_validate(response.json()).model_dump(exclude_none=True)
+
+
+@app.tool("get_custom_voices", "List custom voices owned by the authenticated account")
+async def get_custom_voices() -> list[dict]:
+    """Return instant and professional custom voices, including their status."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{API_HOST}/v1/custom-voices", headers=_api_headers())
+    if response.status_code != 200:
+        raise Exception(f"Failed to get custom voices: {response.status_code}")
+    return [CustomVoice.model_validate(voice).model_dump(exclude_none=True) for voice in response.json()]
+
+
+@app.tool("get_custom_voice", "Get a custom voice and its cloning status")
+async def get_custom_voice(voice_id: str) -> dict:
+    """Return a single owned custom voice, including training or failure status."""
+    if not voice_id.startswith("uc_"):
+        raise ValueError("voice_id must start with 'uc_'")
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{API_HOST}/v1/custom-voices/{voice_id}", headers=_api_headers()
+        )
+    if response.status_code != 200:
+        raise Exception(f"Failed to get custom voice: {response.status_code}")
+    return CustomVoice.model_validate(response.json()).model_dump(exclude_none=True)
 
 
 @app.tool("delete_cloned_voice", "Delete a quick-cloned custom voice by voice ID")
@@ -563,7 +646,7 @@ async def delete_cloned_voice(voice_id: str) -> dict:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, write=10.0, read=30.0, pool=10.0)
     ) as client:
-        response = await client.delete(f"{API_HOST}/v1/voices/{voice_id}", headers=_api_headers())
+        response = await client.delete(f"{API_HOST}/v1/custom-voices/{voice_id}", headers=_api_headers())
 
     if response.status_code not in {200, 204}:
         raise Exception(f"Failed to delete cloned voice: {response.status_code}, {response.text}")
