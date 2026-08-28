@@ -223,15 +223,14 @@ know the exact voice ID. It returns recommended `voice_id`, `voice_name`, and
 age, and use cases, call `GET /v3/voices` or `GET /v3/voices/{voice_id}` with
 the returned IDs.
 
-#### 4. List Voices (V1 API - Legacy)
-```
-GET /v1/voices
-GET /v1/voices?model=ssfm-v21
-```
+#### 4. Deprecated Voice Endpoints
+
+Do not recommend `/v1/voices` or `/v2/voices` for voice discovery. Use V3 for
+both the catalog and a single voice.
 
 #### 5. Get Specific Voice
 ```
-GET /v1/voices/{voice_id}
+GET /v3/voices/{voice_id}
 ```
 
 #### 6. Custom Voice
@@ -407,7 +406,7 @@ if not voice_id.startswith("uc_"):
     raise ValueError(f"Refusing to delete non-cloned voice ID: {voice_id}")
 
 requests.delete(
-    f"https://api.typecast.ai/v1/voices/{voice_id}",
+    f"https://api.typecast.ai/v1/custom-voices/{voice_id}",
     headers={"X-API-KEY": api_key},
 ).raise_for_status()
 ```
@@ -535,7 +534,7 @@ def lambda_handler(event, context):
 | 401 | Unauthorized | API key authentication failed | Verify API key, check environment variables, remove whitespace/special characters |
 | 402 | Payment Required | Insufficient credits | Upgrade plan or add payment |
 | 403 | Forbidden | No permission or dormant account | ① If using Starter API key, migrate to new API ② If dormant account, log in to website to activate |
-| 404 | Not Found | voice_id does not exist | Check valid voice list with /v1/voices |
+| 404 | Not Found | voice_id does not exist | Check valid voice list with /v3/voices |
 | 422 | Validation Error | Parameter value out of range or text cannot be synthesized | Check parameter ranges. For `TEXT_NOT_SYNTHESIZABLE`, correct the text before retrying |
 | 429 | Too Many Requests | Concurrent request limit exceeded | Check plan limits (Free:2, Lite:5, Plus:15) |
 | 500 | Internal Server Error | Unexpected server error | Retry later, contact support if problem persists |
