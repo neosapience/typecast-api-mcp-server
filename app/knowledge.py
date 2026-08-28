@@ -197,11 +197,11 @@ POST /v1/text-to-speech
 | `prompt.previous_text` | string | null | Previous context text for emotion inference |
 | `prompt.next_text` | string | null | Next context text for emotion inference |
 
-#### 2. List Voices (V2 API - Recommended)
+#### 2. List Voices (V3 API - Recommended)
 ```
-GET /v2/voices
-GET /v2/voices?model=ssfm-v30
-GET /v2/voices?model=ssfm-v30&gender=female&age=young_adult
+GET /v3/voices
+GET /v3/voices?model=ssfm-v30
+GET /v3/voices?model=ssfm-v30&gender=female&age=young_adult
 ```
 
 **Query Parameters:**
@@ -220,7 +220,7 @@ GET /v1/voices/recommendations?query=warm%20female%20voice%20for%20product%20tut
 Use this endpoint when a user describes the desired voice style but does not
 know the exact voice ID. It returns recommended `voice_id`, `voice_name`, and
 `score` values only. For details such as supported models, emotions, gender,
-age, and use cases, call `GET /v2/voices` or `GET /v2/voices/{voice_id}` with
+age, and use cases, call `GET /v3/voices` or `GET /v3/voices/{voice_id}` with
 the returned IDs.
 
 #### 4. List Voices (V1 API - Legacy)
@@ -234,17 +234,20 @@ GET /v1/voices?model=ssfm-v21
 GET /v1/voices/{voice_id}
 ```
 
-#### 6. Quick Voice Cloning
+#### 6. Custom Voice
 ```
-POST /v1/voices/clone
-DELETE /v1/voices/{voice_id}
+POST /v1/custom-voices/instant-clone
+POST /v1/custom-voices/professional-clone
+GET /v1/custom-voices
+GET /v1/custom-voices/{voice_id}
+DELETE /v1/custom-voices/{voice_id}
 ```
 
-Quick Voice Cloning creates a custom cloned voice from a short WAV or MP3 audio
+Instant cloning creates a custom cloned voice from a short WAV or MP3 audio
 sample. Use it when a user needs a temporary custom voice and then wants to
 generate speech with that cloned voice.
 
-**Clone Voice Parameters:**
+**Instant Clone Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `name` | string | Display name for the cloned voice. Must be 1-30 characters. |
@@ -256,9 +259,13 @@ generate speech with that cloned voice.
 - Built-in Typecast voices usually start with `tc_` and should not be passed to delete.
 
 **Recommended workflow:**
-1. Clone a voice with `POST /v1/voices/clone`.
+1. Clone a voice with `POST /v1/custom-voices/instant-clone`.
 2. Use the returned `voice_id` with `POST /v1/text-to-speech`.
-3. Delete the cloned voice with `DELETE /v1/voices/{voice_id}` when no longer needed.
+3. Delete the cloned voice with `DELETE /v1/custom-voices/{voice_id}` when no longer needed.
+
+**Professional Clone:** send multipart `name`, `language` (ISO 639-3), `model`,
+and `files` to `POST /v1/custom-voices/professional-clone`. It returns `202`;
+poll `GET /v1/custom-voices/{voice_id}` until `status` is `completed` or `failed`.
 
 ### API Characteristics
 - **Synchronous**: The API returns audio data directly in the response
@@ -369,7 +376,7 @@ api_key = "YOUR_API_KEY"
 
 with open("sample.wav", "rb") as audio_file:
     clone_response = requests.post(
-        "https://api.typecast.ai/v1/voices/clone",
+        "https://api.typecast.ai/v1/custom-voices/instant-clone",
         headers={"X-API-KEY": api_key},
         data={"name": "My Cloned Voice", "model": "ssfm-v30"},
         files={"file": ("sample.wav", audio_file, "audio/wav")},
