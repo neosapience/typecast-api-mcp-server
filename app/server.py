@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote, urlencode
 
 import anyio
@@ -316,6 +316,10 @@ class SmartPrompt(BaseModel):
 
 
 class Output(BaseModel):
+    remove_silence_ms: int | None = Field(
+        default=None, strict=True, ge=0, le=1000,
+        description="Remaining detected silence in ms; 0 removes silence, null disables processing.",
+    )
     volume: int | None = Field(
         default=None,
         description="Audio volume level (0-200). When omitted, the server applies its default. Must NOT be sent together with target_lufs — the API rejects any presence of volume alongside target_lufs.",
@@ -673,6 +677,7 @@ async def text_to_speech(
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
     target_lufs: float | None = None,
+    remove_silence_ms: Annotated[int, Field(strict=True, ge=0, le=1000)] | None = None,
 ) -> str | dict:
     """Convert text to speech using the specified voice and parameters
 
@@ -691,6 +696,8 @@ async def text_to_speech(
         audio_format: Audio format, either 'wav' or 'mp3' (default: wav)
         target_lufs: Optional absolute loudness normalization target in LUFS (-70.0 ~ 0.0).
             Mutually exclusive with a custom volume value on this non-streaming endpoint.
+        remove_silence_ms: Remaining detected silence in milliseconds (integer 0–1000).
+            Zero removes silence; None disables length-based silence processing.
 
     Returns:
         Local mode: path to the saved audio file.
@@ -724,6 +731,7 @@ async def text_to_speech(
             "leave volume at the default (100) or unset target_lufs."
         )
     output_kwargs: dict = {
+        "remove_silence_ms": remove_silence_ms,
         "audio_pitch": audio_pitch,
         "audio_tempo": audio_tempo,
         "audio_format": audio_format,
@@ -800,6 +808,7 @@ async def text_to_speech_stream(
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
     target_lufs: float | None = None,
+    remove_silence_ms: Annotated[int, Field(strict=True, ge=0, le=1000)] | None = None,
 ) -> str | dict:
     """Convert text to speech via the streaming endpoint and save the result.
 
@@ -822,6 +831,8 @@ async def text_to_speech_stream(
         audio_tempo: 0.5 ~ 2.0 (default: 1.0)
         audio_format: 'wav' or 'mp3' (default: wav)
         target_lufs: Optional absolute loudness normalization target in LUFS (-70.0 ~ 0.0)
+        remove_silence_ms: Remaining detected silence in milliseconds (integer 0–1000).
+            Zero removes silence; None disables this processing. Playback may need buffering.
 
     Returns:
         Local mode: path to the saved audio file.
@@ -848,6 +859,9 @@ async def text_to_speech_stream(
         ).model_dump(exclude_none=True)
 
     output_payload = {
+        **Output(remove_silence_ms=remove_silence_ms).model_dump(
+            include={"remove_silence_ms"}, exclude_none=True
+        ),
         "audio_pitch": audio_pitch,
         "audio_tempo": audio_tempo,
         "audio_format": audio_format,
@@ -944,6 +958,7 @@ async def text_to_speech_with_timestamps(
     audio_tempo: float = 1.0,
     audio_format: str = "wav",
     target_lufs: float | None = None,
+    remove_silence_ms: Annotated[int, Field(strict=True, ge=0, le=1000)] | None = None,
 ) -> dict:
     """Convert text to speech and return timestamp alignment for caption generation.
 
@@ -964,6 +979,8 @@ async def text_to_speech_with_timestamps(
         emotion_type, emotion_preset, emotion_intensity, previous_text,
         next_text, language, volume, audio_pitch, audio_tempo, audio_format:
             same shape as text_to_speech.
+        remove_silence_ms: Remaining detected silence in milliseconds (integer 0–1000).
+            Zero removes silence; None disables this processing. Timestamps align to processed audio.
 
     Returns:
         Dict:
@@ -999,6 +1016,7 @@ async def text_to_speech_with_timestamps(
             "leave volume at the default (100) or unset target_lufs."
         )
     output_kwargs: dict = {
+        "remove_silence_ms": remove_silence_ms,
         "audio_pitch": audio_pitch,
         "audio_tempo": audio_tempo,
         "audio_format": audio_format,
