@@ -404,7 +404,6 @@ class TTSRequest(BaseModel):
     language: str | None = Field(default=None, description="Language code based on ISO 639-3")
     prompt: Prompt | PresetPrompt | SmartPrompt | None = Field(default=None, description="Prompt configuration for speech generation")
     output: Output | None = Field(default_factory=Output, description="Output audio configuration")
-    seed: int | None = Field(default=None, description="Random seed for consistent generation", ge=0, le=2147483647)
 
 
 @app.tool("get_voices", "Get a list of available voices using V3 API with filtering support")
