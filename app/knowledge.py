@@ -175,7 +175,6 @@ POST /v1/text-to-speech
 | `output.audio_pitch` | integer | 0 | -12 ~ +12 (semitones) |
 | `output.audio_tempo` | number | 1.0 | 0.5 ~ 2.0 |
 | `output.audio_format` | string | "wav" | "wav" or "mp3" |
-| `seed` | integer | - | Seed value for reproducible results |
 
 **Prompt Parameters for ssfm-v21:**
 | Parameter | Type | Default | Description |
