@@ -243,5 +243,13 @@ class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(file_path.exists())
 
 
+class VoiceMetadataCompatibilityTests(unittest.TestCase):
+    def test_discovery_preserves_future_models_without_enabling_synthesis(self):
+        from app.server import VoiceModel, TTSModel
+        self.assertEqual(VoiceModel(version="ssfm-v99", emotions=["normal"]).version, "ssfm-v99")
+        with self.assertRaises(ValueError):
+            TTSModel("ssfm-v99")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -354,7 +354,8 @@ class AgeEnum(str, Enum):
 
 class VoiceModel(BaseModel):
     """Voice model information in a V3 API response."""
-    version: TTSModel = Field(description="Model version")
+    # Discovery may expose newer models before synthesis supports them.
+    version: str = Field(min_length=1, max_length=80, description="Model version")
     emotions: list[str] = Field(description="List of supported emotions for this model")
 
 
