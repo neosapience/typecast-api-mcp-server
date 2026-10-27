@@ -9,6 +9,7 @@ dependencies = [
     "anyio>=4.14.2",
     "mcp>=1.29.0,<2",
     "httpx",
+    "certifi>=2026.10.19",
     "sounddevice",
     "soundfile",
     "click",
