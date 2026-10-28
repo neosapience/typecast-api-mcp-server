@@ -110,12 +110,18 @@ Neosapience holds core technology patents in voice synthesis. The company publis
 ### What is SSFM?
 Abbreviation for **Speech Synthesis Foundation Model**, Typecast's next-generation TTS core technology. A deep learning-based foundation model that delivers natural speech and emotional expression.
 
+### SSFM 3.1 model selection
+
+Select `ssfm-v31` explicitly for TTS. Use `GET /v3/voices?model=ssfm-v31` to choose a compatible voice, and use that voice's `models` entry for supported emotions. SSFM 3.1 uses the preset/smart prompt shape. Do not infer its language or cloning support from v30. Existing tool defaults remain `ssfm-v30`.
+
+
 ### Available Models
 
 | Model | Description | Emotion Control |
 |-------|-------------|-----------------|
 | ssfm-v21 | Stable production model | Preset only (normal, happy, sad, angry) |
-| ssfm-v30 | Latest model with advanced features | Preset (7 emotions) + Smart (context-aware) |
+| ssfm-v30 | SSFM 3.0 | Preset (7 emotions) + Smart (context-aware) |
+| ssfm-v31 | SSFM 3.1, selected explicitly | Preset + Smart; check the selected voice's emotions |
 
 ### ssfm-v30 Features
 - **7 Emotion Presets**: normal, happy, sad, angry, whisper, toneup, tonedown
@@ -165,7 +171,7 @@ POST /v1/text-to-speech
 |-----------|------|-------------|
 | `voice_id` | string | Voice ID (e.g., "tc_672c5f5ce59fac2a48faeaee") |
 | `text` | string | Text to convert (max 2,000 characters) |
-| `model` | string | Model name: "ssfm-v21" or "ssfm-v30" (recommended) |
+| `model` | string | Model name: "ssfm-v21", "ssfm-v30", or "ssfm-v31"; required |
 
 **Optional Parameters (Common):**
 | Parameter | Type | Default | Description |
@@ -206,7 +212,7 @@ GET /v3/voices?model=ssfm-v30&gender=female&age=young_adult
 **Query Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `model` | string | Filter by model: "ssfm-v21" or "ssfm-v30" |
+| `model` | string | Filter by model: "ssfm-v21", "ssfm-v30", or "ssfm-v31" |
 | `gender` | string | Filter by gender: "male" or "female" |
 | `age` | string | Filter by age: "child", "teen", "young_adult", "middle_aged", "senior" |
 | `use_cases` | string | Filter by use case |
