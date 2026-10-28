@@ -2,14 +2,6 @@
 
 MCP Server for typecast-api, enabling seamless integration with MCP clients. This project provides a standardized way to interact with Typecast API through the Model Context Protocol.
 
-## SSFM 3.1 model selection
-
-Set the TTS model to `ssfm-v31` explicitly and choose a compatible voice using
-`GET /v3/voices?model=ssfm-v31`. Check the selected voice's `models` and supported
-emotions. Existing defaults are unchanged; do not infer language or cloning
-support from another model.
-
-
 ## About
 
 This project implements a Model [Context Protocol server](https://modelcontextprotocol.io/introduction) for Typecast API, allowing MCP clients to interact with the Typecast API in a standardized way.
@@ -18,9 +10,13 @@ This project implements a Model [Context Protocol server](https://modelcontextpr
 
 | Model | Description | Emotion Control |
 |-------|-------------|-----------------|
+| ssfm-v31 | SSFM 3.1 | Preset + Smart Mode |
 | ssfm-v30 | SSFM 3.0 | Preset + Smart Mode |
-| ssfm-v31 | SSFM 3.1, selected explicitly | Preset + Smart Mode; check the selected voice's emotions |
 | ssfm-v21 | Stable production model | Preset only |
+
+The TTS tools default to `ssfm-v30`. Set `model` to select another supported
+model, then use `get_voices` with the same model filter to find compatible
+voices. Check each voice's `models` entry for supported emotions.
 
 ### ssfm-v30 Features
 - **7 Emotion Presets**: normal, happy, sad, angry, whisper, toneup, tonedown
@@ -44,7 +40,7 @@ This project implements a Model [Context Protocol server](https://modelcontextpr
 | Play Audio                       | ✅     |
 | **Output Controls**              |        |
 | `target_lufs` loudness norm      | ✅     |
-| **ssfm-v30 Support**             |        |
+| **ssfm-v30 / ssfm-v31 Support**  |        |
 | Preset Mode                      | ✅     |
 | Smart Mode                       | ✅     |
 | **Custom Voice**                 |        |
