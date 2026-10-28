@@ -18,6 +18,9 @@ The TTS tools default to `ssfm-v30`. Set `model` to select another supported
 model, then use `get_voices` with the same model filter to find compatible
 voices. Check each voice's `models` entry for supported emotions.
 
+`ssfm-v31` is supported by TTS tools only. `clone_voice` and
+`create_professional_voice` accept `ssfm-v21` or `ssfm-v30`, not `ssfm-v31`.
+
 ### ssfm-v30 Features
 - **7 Emotion Presets**: normal, happy, sad, angry, whisper, toneup, tonedown
 - **Smart Mode**: AI automatically infers emotion from context using `previous_text` and `next_text`
