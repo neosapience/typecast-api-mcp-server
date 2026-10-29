@@ -272,6 +272,7 @@ async def search_documentation(query: str, limit: int = 5) -> list[dict]:
 class TTSModel(str, Enum):
     SSFM_V21 = "ssfm-v21"
     SSFM_V30 = "ssfm-v30"
+    SSFM_V31 = "ssfm-v31"
 
 
 class EmotionEnum(str, Enum):
@@ -416,7 +417,7 @@ async def get_voices(
     """Get a list of available voices for text-to-speech using V3 API.
 
     Args:
-        model: Optional filter for specific TTS models (ssfm-v21 or ssfm-v30).
+        model: Optional filter for specific TTS models (ssfm-v21, ssfm-v30 or ssfm-v31).
         gender: Optional filter for voice gender (male or female).
         age: Optional filter for voice age group (child, teenager, young_adult, middle_age, elder).
         use_cases: Optional filter for voice use case (e.g. 'audiobook', 'narration', 'documentary').
@@ -529,6 +530,8 @@ async def clone_voice(
         raise ValueError(f"Voice name must be 1-30 characters; got {char_count}.")
 
     model_enum = TTSModel(model)
+    if model_enum == TTSModel.SSFM_V31:
+        raise ValueError("Cloning requires ssfm-v21 or ssfm-v30; SSFM 3.1 TTS support does not imply cloning support.")
     filename, audio_content, content_type, file_size = _quick_clone_audio(
         audio_file_path,
         audio_base64,
@@ -594,6 +597,8 @@ async def create_professional_voice(
     if not language.strip():
         raise ValueError("language is required and must be an ISO 639-3 code")
     model_enum = TTSModel(model)
+    if model_enum == TTSModel.SSFM_V31:
+        raise ValueError("Cloning requires ssfm-v21 or ssfm-v30; SSFM 3.1 TTS support does not imply cloning support.")
     filename, audio_content, content_type, _ = _quick_clone_audio(
         audio_file_path, audio_base64, audio_filename
     )
@@ -683,8 +688,8 @@ async def text_to_speech(
     Args:
         voice_id: ID of the voice to use
         text: Text to convert to speech
-        model: TTS model to use (ssfm-v21 or ssfm-v30, default: ssfm-v30)
-        emotion_type: For ssfm-v30: 'preset' for explicit emotion or 'smart' for context-aware inference (default: preset)
+        model: TTS model to use (ssfm-v21, ssfm-v30 or ssfm-v31; default: ssfm-v30)
+        emotion_type: For ssfm-v30/ssfm-v31: 'preset' for explicit emotion or 'smart' for context-aware inference (default: preset)
         emotion_preset: Emotion preset type. v21: normal/happy/sad/angry. v30: adds whisper/toneup/tonedown (default: normal)
         emotion_intensity: Intensity of the emotion, between 0.0 and 2.0 (default: 1.0)
         previous_text: For smart mode - previous context text for emotion inference
@@ -707,7 +712,7 @@ async def text_to_speech(
 
     # Build prompt based on model and emotion_type
     model_enum = TTSModel(model)
-    if model_enum == TTSModel.SSFM_V30:
+    if model_enum in (TTSModel.SSFM_V30, TTSModel.SSFM_V31):
         if emotion_type == "smart":
             prompt_model = SmartPrompt(
                 emotion_type=EmotionType.SMART,
@@ -820,8 +825,8 @@ async def text_to_speech_stream(
     Args:
         voice_id: ID of the voice to use
         text: Text to convert to speech
-        model: TTS model (ssfm-v21 or ssfm-v30, default: ssfm-v30)
-        emotion_type: For ssfm-v30: 'preset' or 'smart' (default: preset)
+        model: TTS model (ssfm-v21, ssfm-v30 or ssfm-v31, default: ssfm-v30)
+        emotion_type: For ssfm-v30/ssfm-v31: 'preset' or 'smart' (default: preset)
         emotion_preset: Emotion preset name (default: normal)
         emotion_intensity: Emotion intensity, 0.0 ~ 2.0 (default: 1.0)
         previous_text: For smart mode - previous context text
@@ -838,7 +843,7 @@ async def text_to_speech_stream(
         Remote mode: dict with audio_url and expires_in_seconds.
     """
     model_enum = TTSModel(model)
-    if model_enum == TTSModel.SSFM_V30:
+    if model_enum in (TTSModel.SSFM_V30, TTSModel.SSFM_V31):
         if emotion_type == "smart":
             prompt_payload = SmartPrompt(
                 emotion_type=EmotionType.SMART,
@@ -990,7 +995,7 @@ async def text_to_speech_with_timestamps(
             - 'raw': dict — full server response with the audio bytes stripped
     """
     model_enum = TTSModel(model)
-    if model_enum == TTSModel.SSFM_V30:
+    if model_enum in (TTSModel.SSFM_V30, TTSModel.SSFM_V31):
         if emotion_type == "smart":
             prompt_payload = SmartPrompt(
                 emotion_type=EmotionType.SMART,
