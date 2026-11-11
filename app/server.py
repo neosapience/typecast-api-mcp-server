@@ -58,9 +58,9 @@ def _user_agent() -> str:
         return user_agent
     if source is None or generated_by is None:
         raise ToolError("TYPECAST_INTEGRATION_SOURCE and TYPECAST_GENERATED_BY must be set together.")
-    if source not in {"llms", "skill", "api-page", "api-docs"}:
+    if source not in {"llms", "skill", "api-page", "api-docs", "chatgpt-plugin"}:
         raise ToolError(
-            "Typecast integration source must be 'llms', 'skill', 'api-page', or 'api-docs'."
+            "Typecast integration source must be 'llms', 'skill', 'api-page', 'api-docs', or 'chatgpt-plugin'."
         )
     if not _ATTRIBUTION_TOKEN.fullmatch(generated_by):
         raise ToolError("Typecast generated_by must be a lowercase ASCII token of 1-32 characters.")

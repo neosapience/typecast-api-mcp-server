@@ -1,9 +1,12 @@
+import json
 import os
 import tempfile
 import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import httpx
 
 from app.main import main
 from app.server import (
@@ -23,6 +26,7 @@ from app.server import (
     get_custom_voices,
     get_voice,
     get_voices,
+    text_to_speech,
 )
 from click.testing import CliRunner
 from mcp.server.fastmcp.exceptions import ToolError
@@ -208,9 +212,43 @@ class RemoteModeTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ToolError):
                 _api_headers()
 
+    async def test_chatgpt_source_is_transmitted_on_get_and_post(self):
+        requests = []
+
+        def respond(request):
+            requests.append(request)
+            ua = request.headers["User-Agent"]
+            self.assertTrue(ua.startswith("typecast-mcp/"))
+            self.assertIn(" httpx/", ua)
+            self.assertTrue(ua.endswith(
+                " typecast-integration/1 (source=chatgpt-plugin; generated_by=chatgpt_plugin)"
+            ))
+            self.assertNotIn("test-api-key", ua)
+            if request.method == "GET":
+                return httpx.Response(200, json=[])
+            payload = json.loads(request.content)
+            self.assertNotIn("generated_by", payload)
+            self.assertNotIn("source", payload)
+            return httpx.Response(200, content=b"fixture-audio")
+
+        original_client = httpx.AsyncClient
+        attribution = _request_attribution.set(("chatgpt-plugin", "chatgpt_plugin"))
+        try:
+            with tempfile.TemporaryDirectory() as directory, \
+                 patch("app.server.REMOTE_MODE", False), \
+                 patch("app.server.OUTPUT_DIR", Path(directory)), \
+                 patch("app.server.API_KEY", "test-api-key"), \
+                 patch("app.server.httpx.AsyncClient", side_effect=lambda *args, **kwargs:
+                       original_client(*args, transport=httpx.MockTransport(respond), **kwargs)):
+                self.assertEqual(await get_voices(), [])
+                await text_to_speech("tc_voice", "fixture")
+        finally:
+            _request_attribution.reset(attribution)
+        self.assertEqual([request.method for request in requests], ["GET", "POST"])
+
     async def test_user_agent_validates_attribution(self):
         with patch("app.server.REMOTE_MODE", False):
-            for source in ("api-page", "api-docs"):
+            for source in ("api-page", "api-docs", "chatgpt-plugin"):
                 token = _request_attribution.set((source, "codex"))
                 try:
                     self.assertIn(f"source={source}", _user_agent())
