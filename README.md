@@ -118,7 +118,8 @@ X-Typecast-Generated-By: codex
 ```
 
 Use `api-page` for API page onboarding and `api-docs` for API documentation
-onboarding. The legacy `llms` and `skill` values remain accepted.
+onboarding, and `chatgpt-plugin` for ChatGPT plugin integrations. The legacy
+`llms` and `skill` values remain accepted.
 `X-Typecast-Generated-By` accepts a lowercase ASCII token up to 32 characters.
 The server keeps its own `typecast-mcp/<version>` User-Agent and appends this
 attribution instead of replacing it.
@@ -134,7 +135,7 @@ Set the following environment variables:
 ```bash
 TYPECAST_API_KEY=<your-api-key>
 TYPECAST_OUTPUT_DIR=<your-output-directory> # default: ~/Downloads/typecast_output
-TYPECAST_INTEGRATION_SOURCE=<llms|skill|api-page|api-docs> # optional; set both attribution variables
+TYPECAST_INTEGRATION_SOURCE=<llms|skill|api-page|api-docs|chatgpt-plugin> # optional; set both attribution variables
 TYPECAST_GENERATED_BY=<coding-agent-id>                     # optional; e.g. codex or claude-code
 ```
 
